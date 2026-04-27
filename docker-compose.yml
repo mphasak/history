@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: history_sim
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: history_sim
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U history_sim -d history_sim"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ingest:
+    build:
+      context: ./ingest
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DSN: postgresql://history_sim:dev@postgres:5432/history_sim
+    volumes:
+      - ./ingest:/app
+      - ./template_v0.3.xlsx:/app/template_v0.3.xlsx:ro
+    command: python ingest.py template_v0.3.xlsx --dsn postgresql://history_sim:dev@postgres:5432/history_sim
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/src:/app/src
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+
+volumes:
+  pgdata:

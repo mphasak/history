@@ -1,0 +1,77 @@
+import { useStore } from './state'
+import { WorldMap } from './components/Map'
+import { YearSlider } from './components/YearSlider'
+import { PerspectivePicker } from './components/PerspectivePicker'
+import { DetailPanel } from './components/DetailPanel'
+import { DiffLegend } from './components/DiffOverlay'
+import { useWorldQuery } from './hooks/useWorldQuery'
+import type { RenderMode } from './state'
+
+export default function App() {
+  const renderMode = useStore((s) => s.renderMode)
+  const setRenderMode = useStore((s) => s.setRenderMode)
+  const selectedCarrierId = useStore((s) => s.selectedCarrierId)
+  const { data: worldData, loading, error } = useWorldQuery()
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-950 text-white">
+      {/* Header */}
+      <header className="flex items-center px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0 gap-4">
+        <h1 className="font-bold text-sm text-white">Human History Simulator</h1>
+        <div className="flex gap-1">
+          {(['single', 'side-by-side', 'diff-overlay'] as RenderMode[]).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setRenderMode(mode)}
+              className={`text-xs px-2 py-1 rounded transition-colors ${
+                renderMode === mode
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              {mode === 'single' ? 'Single' : mode === 'side-by-side' ? 'Side by Side' : 'Diff Overlay'}
+            </button>
+          ))}
+        </div>
+        {loading && (
+          <span className="text-xs text-gray-400 ml-auto">Fetching world…</span>
+        )}
+        {error && (
+          <span className="text-xs text-red-400 ml-auto" title={error}>
+            API error
+          </span>
+        )}
+      </header>
+
+      {/* Main area */}
+      <div className="flex-1 relative overflow-hidden">
+        {/* Map fills the whole area */}
+        <WorldMap worldData={worldData} loading={loading} />
+
+        {/* Perspective picker — top-left overlay */}
+        <div className="absolute top-3 left-3 z-10">
+          <PerspectivePicker />
+        </div>
+
+        {/* Diff legend — bottom-left when in diff-overlay mode */}
+        {renderMode === 'diff-overlay' && (
+          <div className="absolute bottom-12 left-3 z-10">
+            <DiffLegend worldData={worldData} />
+          </div>
+        )}
+
+        {/* Detail panel — right overlay when carrier selected */}
+        {selectedCarrierId && (
+          <div className="absolute top-3 right-3 z-10 max-h-[calc(100vh-8rem)] overflow-y-auto">
+            <DetailPanel />
+          </div>
+        )}
+      </div>
+
+      {/* Footer — year slider */}
+      <footer className="shrink-0">
+        <YearSlider />
+      </footer>
+    </div>
+  )
+}
