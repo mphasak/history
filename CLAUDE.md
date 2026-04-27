@@ -2,10 +2,19 @@
 
 ## What this is
 
-A spatiotemporal history map where **disagreement is structural**: two Perspectives
-on the same (year, bbox) query return materially different worlds. The Indo-Aryan
-debate is the canonical demo. See `plan.md` for scope; `schema_v0.3.md` for the
-data model; `editorial_policy_v0.3.md` for governance.
+A scrubbable spatiotemporal map of human history. Pick a year, pan the world,
+click on a place to see who lived there and what they carried (genes, languages,
+technologies, ideologies). The map shows carriers, their trait mixes, and the
+propagation events that link them across time.
+
+Perspectives are one feature among several — they let multiple scholarly
+traditions coexist on the same coordinates so users can flip between curated
+worldviews instead of being handed a single "official" reading. Useful for
+contested topics, but not the headline. The Indo-Aryan debate (`PERSP_INDIAN_AMT`
+vs `PERSP_INDIAN_OOI`) is one demo, not the thesis.
+
+See `plan.md` for scope; `schema_v0.3.md` for the data model;
+`editorial_policy_v0.3.md` for governance.
 
 ---
 
@@ -114,6 +123,31 @@ See `backend/src/perspectives.py` for the pattern.
 Years are BCE-negative, CE-positive, with no year 0 (`-1` = 1 BCE, `1` = 1 CE).
 This applies to the slider, time-window queries, and display formatting.
 
+### Paleo features use a NULL-geometry sentinel for "disappeared"
+
+`physical_feature_snapshot.geometry` is nullable. A snapshot with `geometry IS NULL`
+at year Y means "this feature is gone as of Y". The `/paleo-basemap` endpoint
+returns the latest snapshot ≤ year via `DISTINCT ON (feature_id) ... ORDER BY
+feature_id, as_of_year DESC`, so the NULL row wins for years past disappearance.
+Frontend filters out null geometries before rendering. Use this pattern when
+adding more paleo features rather than introducing a `valid_until_year` column.
+
+### Carrier `extent` is sparse; the resolver buffers centroids by carrier type
+
+The seed spreadsheet only populates `carrier.centroid`. `resolve_world` falls
+back to `ST_Buffer(centroid, RADIUS)` where RADIUS comes from
+`_CARRIER_DEFAULT_RADIUS_M` keyed by `carrier.type` — that way fill-mode
+rendering always has a polygon. The carrier view exposes `extent_is_real` so
+the UI can dash-outline buffered extents.
+
+### `paleo-seed` compose service runs every `docker compose up`
+
+`db/003_seed_paleo_features.sql` is applied by a dedicated `paleo-seed` service
+that runs after `ingest`. It is idempotent (DELETE+INSERT keyed on
+`PF_PALEO_*` IDs) so existing pgdata volumes pick up edits without requiring
+`docker compose down -v`. New paleo features should follow the same ID prefix
+convention.
+
 ---
 
 ## Architecture rules (from `plan.md` §4 and §9)
@@ -137,23 +171,34 @@ This applies to the slider, time-window queries, and display formatting.
 |------|---------|
 | `backend/src/resolver.py` | Core Perspective resolution logic — most important module |
 | `backend/src/perspectives.py` | `GET /perspectives` endpoint |
-| `backend/src/routes/world.py` | `GET /world` — drives the main map |
+| `backend/src/routes/world.py` | `GET /world` and `GET /world/at` — drive the main map and click-at-point lookups |
+| `backend/src/routes/basemap.py` | `GET /paleo-basemap` — returns paleo feature polygons + sea level for a year |
 | `backend/src/routes/claim.py` | `GET /claim/:id` — per-Perspective claim stances |
 | `db/001_schema.sql` | Full DDL (generated from schema_v0.3.md) |
+| `db/003_seed_paleo_features.sql` | Hand-authored land-bridge / ice-sheet polygons; applied by the `paleo-seed` compose service |
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
-| `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode |
-| `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`) |
+| `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
+| `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |
+| `frontend/src/components/Legend.tsx` | Bottom-left legend; swaps content based on vizMode and active paleo features |
+| `frontend/src/components/ClickPointPanel.tsx` | Right-side picker shown when an empty map point is clicked |
 
 ---
 
-## The killer demo (acceptance test for Phase 0)
+## Phase 0 acceptance demo
+
+The base flow exercises the core map:
 
 1. `docker compose up`
 2. Open http://localhost:5173
-3. Set Perspective picker to **PERSP_INDIAN_AMT** + **PERSP_INDIAN_OOI**
-4. Slide year to **-1700**
-5. Click the dot in NW South Asia
-6. Detail panel: AMT column shows 55% ANI / 30% ASI / 15% Steppe_MLBA with the
-   Steppe migration claim **endorsed**; OOI column shows same signal but with the
-   claim **nuanced** ("interpreted as much earlier and/or bidirectional")
-7. Toggle **Diff Overlay** — the disputed carrier renders in red
+3. Slide the year, pan the map, click on a carrier — detail panel shows who
+   lived there at that year, with their trait mix and supporting claims.
+
+The Perspectives feature is exercised by an additional Indo-Aryan demo:
+
+1. Set Perspective picker to **PERSP_INDIAN_AMT** + **PERSP_INDIAN_OOI**
+2. Slide year to **-1700**
+3. Click the dot in NW South Asia
+4. Detail panel: AMT column shows 55% ANI / 30% ASI / 15% Steppe_MLBA with the
+   Steppe migration claim **endorsed**; OOI column shows same signal but with
+   the claim **nuanced** ("interpreted as much earlier and/or bidirectional")
+5. Toggle **Diff Overlay** — the disputed carrier renders in red

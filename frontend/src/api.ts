@@ -44,6 +44,26 @@ export interface CarrierView {
   linguistic_affiliation: string | null
   trait_mix: TraitMixEntry[]
   endorsement: EndorsementSummary | null
+  distance_km?: number | null
+  covers_point?: boolean | null
+  /** GeoJSON geometry string. Real extent if extent_is_real, else a buffered circle. */
+  extent_geojson?: string | null
+  extent_is_real?: boolean
+}
+
+export interface TraitObservationView {
+  id: string
+  carrier_id: string | null
+  sample_label: string | null
+  date_min_year: number | null
+  date_max_year: number | null
+  location: GeoPoint | null
+  domain: string
+  trait_id: string | null
+  trait_display_name: string | null
+  fraction: number | null
+  stderr: number | null
+  method: string | null
 }
 
 export interface PropagationEventView {
@@ -67,6 +87,13 @@ export interface PerspectiveWorldView {
 export interface WorldResponse {
   year: number
   bbox: number[]
+  perspectives: Record<string, PerspectiveWorldView>
+  observations: TraitObservationView[]
+}
+
+export interface WorldAtPointResponse {
+  year: number
+  query_point: GeoPoint
   perspectives: Record<string, PerspectiveWorldView>
 }
 
@@ -131,6 +158,14 @@ export const api = {
       perspectives: perspectives.join(',') || undefined,
     }),
 
+  worldAt: (year: number, lat: number, lon: number, perspectives: string[]): Promise<WorldAtPointResponse> =>
+    get('/world/at', {
+      year,
+      lat,
+      lon,
+      perspectives: perspectives.join(',') || undefined,
+    }),
+
   carrierTimeline: (carrierId: string, perspective: string): Promise<CarrierTimelineResponse> =>
     get(`/carrier/${carrierId}/timeline`, { perspective }),
 
@@ -145,6 +180,22 @@ export const api = {
   traitLineageDiff: (traitId: string, perspectives: string[]) =>
     get(`/trait/${traitId}/lineage-diff`, { perspectives: perspectives.join(',') }),
 
-  paleoBasemap: (year: number, perspective?: string) =>
+  paleoBasemap: (year: number, perspective?: string): Promise<PaleoBasemapResponse> =>
     get('/paleo-basemap', { year, perspective }),
+}
+
+export interface PaleoFeature {
+  id: string
+  type: string
+  display_name: string | null
+  as_of_year: number
+  centroid: GeoPoint | null
+  geometry_geojson: string | null
+}
+
+export interface PaleoBasemapResponse {
+  year: number
+  sea_level_meters: number | null
+  temp_anomaly_c: number | null
+  physical_features: PaleoFeature[]
 }

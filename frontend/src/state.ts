@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 
 export type RenderMode = 'single' | 'side-by-side' | 'diff-overlay'
+export type VizMode = 'pointwise' | 'fill'
+
+export interface ClickPoint {
+  lat: number
+  lon: number
+}
 
 interface HistorySimState {
   year: number
@@ -16,8 +22,14 @@ interface HistorySimState {
   selectedCarrierId: string | null
   setSelectedCarrierId: (id: string | null) => void
 
+  clickPoint: ClickPoint | null
+  setClickPoint: (p: ClickPoint | null) => void
+
   renderMode: RenderMode
   setRenderMode: (mode: RenderMode) => void
+
+  vizMode: VizMode
+  setVizMode: (mode: VizMode) => void
 }
 
 // Read initial year + perspectives from URL params
@@ -50,8 +62,14 @@ export const useStore = create<HistorySimState>((set) => ({
   selectedCarrierId: null,
   setSelectedCarrierId: (id) => set({ selectedCarrierId: id }),
 
+  clickPoint: null,
+  setClickPoint: (p) => set({ clickPoint: p }),
+
   renderMode: 'single',
   setRenderMode: (mode) => set({ renderMode: mode }),
+
+  vizMode: 'pointwise',
+  setVizMode: (mode) => set({ vizMode: mode }),
 }))
 
 function updateUrl(changes: { year?: number; perspectives?: string[] }) {

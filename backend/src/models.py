@@ -47,6 +47,28 @@ class CarrierView(BaseModel):
     linguistic_affiliation: str | None
     trait_mix: list[TraitMixEntry]
     endorsement: EndorsementSummary | None = None
+    distance_km: float | None = None
+    covers_point: bool | None = None
+    # extent_geojson is a GeoJSON geometry string (Polygon or MultiPolygon).
+    # Falls back to a buffered circle around the centroid when no real extent
+    # exists in the database. extent_is_real=true means the polygon was authored.
+    extent_geojson: str | None = None
+    extent_is_real: bool = False
+
+
+class TraitObservationView(BaseModel):
+    id: str
+    carrier_id: str | None
+    sample_label: str | None
+    date_min_year: int | None
+    date_max_year: int | None
+    location: GeoPoint | None
+    domain: str
+    trait_id: str | None
+    trait_display_name: str | None
+    fraction: float | None
+    stderr: float | None
+    method: str | None
 
 
 class PropagationEventView(BaseModel):
@@ -70,6 +92,13 @@ class PerspectiveWorldView(BaseModel):
 class WorldResponse(BaseModel):
     year: int
     bbox: list[float]
+    perspectives: dict[str, PerspectiveWorldView]
+    observations: list[TraitObservationView] = []
+
+
+class WorldAtPointResponse(BaseModel):
+    year: int
+    query_point: GeoPoint
     perspectives: dict[str, PerspectiveWorldView]
 
 

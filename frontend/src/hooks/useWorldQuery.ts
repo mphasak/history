@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { api, WorldResponse, Perspective } from '../api'
+import { api, WorldResponse, Perspective, PaleoBasemapResponse } from '../api'
 import { useStore } from '../state'
 
 interface WorldQueryResult {
@@ -49,6 +49,42 @@ interface PerspectivesResult {
   perspectives: Perspective[]
   loading: boolean
   error: string | null
+}
+
+interface PaleoResult {
+  data: PaleoBasemapResponse | null
+  loading: boolean
+  error: string | null
+}
+
+export function usePaleoBasemap(): PaleoResult {
+  const year = useStore((s) => s.year)
+  const [data, setData] = useState<PaleoBasemapResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    api
+      .paleoBasemap(year)
+      .then((res) => {
+        if (!cancelled) {
+          setData(res)
+          setLoading(false)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(String(err))
+          setLoading(false)
+        }
+      })
+    return () => { cancelled = true }
+  }, [year])
+
+  return { data, loading, error }
 }
 
 export function usePerspectives(): PerspectivesResult {

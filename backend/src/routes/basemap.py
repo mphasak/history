@@ -26,34 +26,37 @@ async def get_paleo_basemap(
     )
     climate = await climate_row.fetchone()
 
-    # Fetch physical feature snapshots valid at or before year
+    # Fetch physical feature snapshots valid at or before year.
+    # For each feature we want the most recent snapshot (the latest stored
+    # frame). A NULL geometry signals "feature has disappeared" — we still
+    # return the row so clients can stop rendering it.
     feat_rows = await conn.execute(
         """
-        SELECT pf.id, pf.type, pf.display_name,
+        SELECT DISTINCT ON (pfs.feature_id)
+               pf.id, pf.type, pf.display_name,
                pfs.as_of_year,
                ST_Y(pfs.centroid::geometry) AS lat,
-               ST_X(pfs.centroid::geometry) AS lon
+               ST_X(pfs.centroid::geometry) AS lon,
+               ST_AsGeoJSON(pfs.geometry::geometry) AS geometry_geojson
         FROM physical_feature_snapshot pfs
         JOIN physical_feature pf ON pf.id = pfs.feature_id
         WHERE pfs.as_of_year <= %(year)s
-        ORDER BY pfs.as_of_year DESC
+        ORDER BY pfs.feature_id, pfs.as_of_year DESC
         """,
         {"year": year},
     )
 
     features = []
-    seen_feature_ids = set()
     async for r in feat_rows:
         r = dict(r)
-        if r["id"] not in seen_feature_ids:
-            seen_feature_ids.add(r["id"])
-            features.append({
-                "id": r["id"],
-                "type": r["type"],
-                "display_name": r["display_name"],
-                "as_of_year": r["as_of_year"],
-                "centroid": {"lat": r["lat"], "lon": r["lon"]} if r["lat"] else None,
-            })
+        features.append({
+            "id": r["id"],
+            "type": r["type"],
+            "display_name": r["display_name"],
+            "as_of_year": r["as_of_year"],
+            "centroid": {"lat": r["lat"], "lon": r["lon"]} if r["lat"] is not None else None,
+            "geometry_geojson": r.get("geometry_geojson"),
+        })
 
     return PaleoBasemapResponse(
         year=year,

@@ -32,6 +32,25 @@ services:
     command: python ingest.py template_v0.3.xlsx --dsn postgresql://history_sim:dev@postgres:5432/history_sim
     restart: "no"
 
+  # Applies hand-authored paleo feature snapshots after ingest.
+  # Idempotent (DELETE+INSERT keyed on PF_PALEO_* IDs); runs every compose up
+  # so existing pgdata volumes pick up updates to db/003_seed_paleo_features.sql
+  # without requiring `docker compose down -v`.
+  paleo-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/003_seed_paleo_features.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   backend:
     build:
       context: ./backend
@@ -40,6 +59,8 @@ services:
       postgres:
         condition: service_healthy
       ingest:
+        condition: service_completed_successfully
+      paleo-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

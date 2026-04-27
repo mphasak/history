@@ -35,14 +35,17 @@ specification.
 
 A scrubbable spatiotemporal map of human history. Users pick a year (slider from ~70,000
 BCE to present), pan/zoom a world map, click on population groups or technologies or
-ideologies to see their lineage backward and forward in time, and toggle between
-multiple **Perspectives** (curated worldviews) to see how different scholarly traditions
-read the same evidence differently.
+ideologies to see their lineage backward and forward in time. The map shows carriers,
+their trait mixes, propagation events that link them, and paleo features (land bridges,
+ice sheets) that reshape the world over time.
 
-The novel design move is that **disagreement is structural, not a footnote**. Two users
-viewing the same coordinates under different Perspectives see materially different worlds.
-The Indo-Aryan question is the canonical demo: under `PERSP_INDIAN_AMT` you see a
-2000-1500 BCE Steppe migration into NW South Asia; under `PERSP_INDIAN_OOI` you don't.
+**Perspectives** are one feature among several. They let multiple scholarly traditions
+coexist on the same coordinates so users can flip between curated worldviews instead of
+being handed a single "official" reading. Useful for contested topics, but not the only
+reason to use the map. The Indo-Aryan question is one demo: under `PERSP_INDIAN_AMT` you
+see a 2000-1500 BCE Steppe migration into NW South Asia; under `PERSP_INDIAN_OOI` you
+don't. Most queries don't involve disagreement at all — they just answer "who was here,
+when, and what were they carrying?"
 
 Phase 0 (this plan) ships a thin slice that demonstrates this end to end on the seeded
 data. Production launch and the governance/wiki layer come later.
