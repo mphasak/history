@@ -133,6 +133,26 @@ class ClaimResponse(BaseModel):
     perspectives: dict[str, ClaimPerspectiveView]
 
 
+class CarrierThreat(BaseModel):
+    """A threat (climate, war, disease, etc.) faced by a carrier in some
+    year window, optionally backed by a citation via claim_id.
+    """
+    id: int
+    threat_type: str
+    display_name: str
+    description: str | None
+    severity: int  # 1..5
+    date_min_year: int
+    date_max_year: int
+    sources: list[ClaimSourceEntry] = []
+
+
+class CarrierThreatsResponse(BaseModel):
+    carrier_id: str
+    year: int | None
+    threats: list[CarrierThreat]
+
+
 class CarrierClaim(BaseModel):
     """A claim relevant to a carrier, with per-Perspective stance + sources.
 

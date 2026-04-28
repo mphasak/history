@@ -10,8 +10,14 @@ from ..models import (
     CarrierClaim,
     ClaimPerspectiveView,
     ClaimSourceEntry,
+    CarrierThreatsResponse,
+    CarrierThreat,
 )
-from ..resolver import resolve_carrier_timeline, resolve_carrier_claims
+from ..resolver import (
+    resolve_carrier_timeline,
+    resolve_carrier_claims,
+    resolve_carrier_threats,
+)
 
 router = APIRouter()
 
@@ -108,3 +114,44 @@ async def get_carrier_claims(
         )
 
     return CarrierClaimsResponse(carrier_id=carrier_id, claims=claims)
+
+
+@router.get("/carrier/{carrier_id}/threats", response_model=CarrierThreatsResponse)
+async def get_carrier_threats(
+    carrier_id: str,
+    year: int | None = Query(
+        None,
+        description="If set, only threats whose year window covers this year are returned.",
+    ),
+    conn: AsyncConnection = Depends(get_conn),
+):
+    row = await conn.execute("SELECT id FROM carrier WHERE id = %s", (carrier_id,))
+    if not await row.fetchone():
+        raise HTTPException(404, f"Carrier {carrier_id!r} not found")
+
+    raw = await resolve_carrier_threats(conn, carrier_id, year)
+    threats = [
+        CarrierThreat(
+            id=t["id"],
+            threat_type=t["threat_type"],
+            display_name=t["display_name"],
+            description=t.get("description"),
+            severity=int(t["severity"]),
+            date_min_year=t["date_min_year"],
+            date_max_year=t["date_max_year"],
+            sources=[
+                ClaimSourceEntry(
+                    source_id=s["source_id"],
+                    citation=s["citation"],
+                    stance=s["stance"],
+                    weight_override=s.get("weight_override"),
+                    default_weight=s["default_weight"],
+                )
+                for s in t.get("sources", [])
+            ],
+        )
+        for t in raw
+    ]
+    return CarrierThreatsResponse(
+        carrier_id=carrier_id, year=year, threats=threats
+    )

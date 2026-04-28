@@ -225,6 +225,37 @@ async def test_carrier_claims_endpoint_roman_provenance(client):
 
 
 @pytest.mark.asyncio
+async def test_carrier_threats_endpoint_filters_by_year(client):
+    """
+    /carrier/{id}/threats?year=Y returns only threats whose date window
+    covers Y. Romans face the Antonine + Cyprian plagues at year=200.
+    """
+    r = await client.get(
+        "/carrier/CARR_HIST_ROMAN/threats", params={"year": 200}
+    )
+    if r.status_code == 404:
+        pytest.skip("CARR_HIST_ROMAN missing — historical-carriers seed not applied")
+    assert r.status_code == 200
+    data = r.json()
+    if not data["threats"]:
+        pytest.skip("No threats seeded — 007 seed not applied")
+    types = {t["threat_type"] for t in data["threats"]}
+    assert "disease" in types, (
+        f"Expected disease threat at year 200; got types={types}"
+    )
+
+    # At year 0 the disease window (165-270) should NOT match.
+    r2 = await client.get(
+        "/carrier/CARR_HIST_ROMAN/threats", params={"year": 0}
+    )
+    assert r2.status_code == 200
+    types2 = {t["threat_type"] for t in r2.json()["threats"]}
+    assert "disease" not in types2, (
+        f"Year 0 is before the plague window; expected no disease threat, got {types2}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_world_carrier_count_grows_with_historical_seed(client):
     """
     The 005 seed adds historical/ethnolinguistic carriers across the Holocene.

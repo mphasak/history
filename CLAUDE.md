@@ -202,6 +202,16 @@ compose service that runs after `ingest`:
    strips this before displaying), with `claim_source` rows linking to the
    primary literature (Reich, Lazaridis, Narasimhan, Antonio, etc.) or to
    the new `DEDUCED_PHASE_0` source for editorial best-effort summaries.
+5. **`carrier-threats-seed`** (`007_carrier_threats.sql`) — additively
+   defines the `carrier_threat` table + `threat_type` enum
+   (climate / disease / war / raids / displacement / resource_scarcity /
+   resource_competition / megafauna_loss / natural_disaster /
+   colonization / genocide / assimilation_pressure / other). Seeds 94
+   threats across the carrier set with year windows, severities (1–5),
+   and a Claim (`subject_type=Carrier`) tagged `[AUTO-THREAT]` linking
+   to citations. The DetailPanel filters threats whose
+   `[date_min_year, date_max_year]` window covers the current slider
+   year so the section auto-updates as the user scrubs.
 
 Each seed is idempotent (DELETE+INSERT keyed on stable ID prefixes or
 on the `[AUTO-PROVENANCE]` statement tag) so existing pgdata volumes
@@ -286,6 +296,7 @@ the lifetime of the map, so source existence is the right gate.
 | `db/004_seed_population_genetics.sql` | Reich-style ancestry components and Pleistocene/Holocene carriers |
 | `db/005_seed_historical_carriers.sql` | 80 historical / hominin carriers (`CARR_HIST_*`, `CARR_HOMININ_*`) |
 | `db/006_seed_historical_carrier_ancestry.sql` | Ancestry mixes + cited claims (`[AUTO-PROVENANCE]`) for the carriers from 005 |
+| `db/007_carrier_threats.sql` | `carrier_threat` table + `threat_type` enum + 94 seeded threats with year windows and cited claims (`[AUTO-THREAT]`) |
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
 | `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |

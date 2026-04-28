@@ -146,6 +146,24 @@ export interface CarrierClaimsResponse {
   claims: CarrierClaim[]
 }
 
+export interface CarrierThreat {
+  id: number
+  threat_type: string
+  display_name: string
+  description: string | null
+  /** 1 = stressor … 5 = existential / extinction-level. */
+  severity: number
+  date_min_year: number
+  date_max_year: number
+  sources: ClaimSourceEntry[]
+}
+
+export interface CarrierThreatsResponse {
+  carrier_id: string
+  year: number | null
+  threats: CarrierThreat[]
+}
+
 export interface CarrierTimelineSnapshot {
   as_of_year: number
   domain: string
@@ -195,6 +213,9 @@ export const api = {
     get(`/carrier/${carrierId}/claims`, {
       perspectives: perspectives.join(',') || undefined,
     }),
+
+  carrierThreats: (carrierId: string, year: number): Promise<CarrierThreatsResponse> =>
+    get(`/carrier/${carrierId}/threats`, { year }),
 
   claim: (claimId: number, perspectives: string[]): Promise<ClaimResponse> =>
     get(`/claim/${claimId}`, {

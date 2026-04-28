@@ -148,9 +148,15 @@ history-simulator/
     - `carriers-provenance-seed`
       (`db/006_seed_historical_carrier_ancestry.sql`) — ancestry
       breakdowns + cited claims for the carriers from 005
+    - `carrier-threats-seed`
+      (`db/007_carrier_threats.sql`) — `carrier_threat` table +
+      `threat_type` enum, plus 94 seeded threats (climate, war,
+      disease, colonization, megafauna loss, etc.) covering most of
+      the carrier set with year windows and citations
 - Read endpoints with Perspective resolution: `/perspectives`,
   `/world` (with `disagreed_carrier_ids` side-channel), `/world/at`,
-  `/carrier/{id}/timeline`, `/carrier/{id}/claims`, `/claim/{id}`,
+  `/carrier/{id}/timeline`, `/carrier/{id}/claims`,
+  `/carrier/{id}/threats`, `/claim/{id}`,
   `/trait/{id}/lineage[-diff]`, `/paleo-basemap`, `/paleo-coastlines`
   (proxied GPlates Web Service for deep time)
 - World map with piecewise-log year slider (-10 Mya → 2025 with no
@@ -167,8 +173,10 @@ history-simulator/
 - Side-by-side and diff-overlay perspective comparison modes; diff
   overlay marks carriers contested at the *claim* layer (carrier
   itself, its trait mixes, or propagation events overlapping it)
-- Detail panel showing per-perspective trait mixes plus a
-  "Claims about this population" section with stance badges
+- Detail panel showing per-perspective trait mixes plus
+  a "Threats at {year}" section (climate, war, disease,
+  colonization, etc., with severity 1–5 and citations) and
+  a "Claims about this population" section with stance badges
   (endorses / nuances / rejects / asserts), override statements,
   and citation lists with weight-override annotations
 - Indo-Aryan demo working end to end with the contested-knowledge

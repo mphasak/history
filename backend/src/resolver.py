@@ -725,6 +725,66 @@ async def resolve_carrier_timeline(
 _PROP_RELEVANCE_RADIUS_M = 1_500_000
 
 
+async def resolve_carrier_threats(
+    conn,
+    carrier_id: str,
+    year: int | None = None,
+) -> list[dict]:
+    """
+    Return threats faced by a carrier, optionally filtered to those whose
+    year window overlaps `year`. Threats are pulled with their supporting
+    sources (joined through claim_id → claim_source → source) so the frontend
+    can show citations alongside each threat.
+    """
+    if year is None:
+        rows = await conn.execute(
+            """
+            SELECT id, threat_type::text AS threat_type, display_name, description,
+                   severity, date_min_year, date_max_year, claim_id
+            FROM carrier_threat
+            WHERE carrier_id = %(cid)s
+            ORDER BY severity DESC, date_min_year
+            """,
+            {"cid": carrier_id},
+        )
+    else:
+        rows = await conn.execute(
+            """
+            SELECT id, threat_type::text AS threat_type, display_name, description,
+                   severity, date_min_year, date_max_year, claim_id
+            FROM carrier_threat
+            WHERE carrier_id = %(cid)s
+              AND date_min_year <= %(y)s AND date_max_year >= %(y)s
+            ORDER BY severity DESC, date_min_year
+            """,
+            {"cid": carrier_id, "y": year},
+        )
+    threats = [dict(r) async for r in rows]
+    if not threats:
+        return []
+
+    # Batch-fetch citations for all threat claims at once.
+    claim_ids = [t["claim_id"] for t in threats if t["claim_id"] is not None]
+    sources_by_claim: dict[int, list[dict]] = {}
+    if claim_ids:
+        src_rows = await conn.execute(
+            """
+            SELECT cs.claim_id, cs.source_id, s.citation, cs.stance,
+                   cs.weight_override, s.default_weight
+            FROM claim_source cs
+            JOIN source s ON s.id = cs.source_id
+            WHERE cs.claim_id = ANY(%(ids)s)
+            """,
+            {"ids": claim_ids},
+        )
+        async for r in src_rows:
+            sources_by_claim.setdefault(r["claim_id"], []).append(dict(r))
+
+    for t in threats:
+        t["sources"] = sources_by_claim.get(t["claim_id"], [])
+    return threats
+
+
 async def resolve_carrier_claims(
     conn,
     carrier_id: str,

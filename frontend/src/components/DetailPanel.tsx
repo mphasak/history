@@ -1,7 +1,37 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../state'
-import { api, CarrierView, CarrierTimelineResponse, CarrierClaim } from '../api'
+import {
+  api,
+  CarrierView,
+  CarrierTimelineResponse,
+  CarrierClaim,
+  CarrierThreat,
+} from '../api'
 import { useWorldQuery, usePerspectives } from '../hooks/useWorldQuery'
+
+const THREAT_TYPE_LABEL: Record<string, string> = {
+  climate: 'Climate',
+  disease: 'Disease',
+  war: 'War',
+  raids: 'Raids',
+  displacement: 'Displacement',
+  resource_scarcity: 'Resource scarcity',
+  resource_competition: 'Resource competition',
+  megafauna_loss: 'Megafauna loss',
+  natural_disaster: 'Natural disaster',
+  colonization: 'Colonization',
+  genocide: 'Genocide',
+  assimilation_pressure: 'Assimilation pressure',
+  other: 'Other',
+}
+
+function severityStyle(sev: number): string {
+  // 1-2: gray; 3: amber; 4: orange; 5: rose. Color codes existential vs stressor.
+  if (sev >= 5) return 'border-rose-700 bg-rose-950/30 text-rose-200'
+  if (sev >= 4) return 'border-orange-700 bg-orange-950/30 text-orange-200'
+  if (sev >= 3) return 'border-amber-700 bg-amber-950/30 text-amber-200'
+  return 'border-gray-700 bg-gray-800/40 text-gray-200'
+}
 
 const STANCE_STYLE: Record<string, { label: string; bg: string; border: string; text: string }> = {
   endorses: {
@@ -82,6 +112,8 @@ export function DetailPanel() {
   const [loadingTimelines, setLoadingTimelines] = useState(false)
   const [claims, setClaims] = useState<CarrierClaim[]>([])
   const [loadingClaims, setLoadingClaims] = useState(false)
+  const [threats, setThreats] = useState<CarrierThreat[]>([])
+  const [loadingThreats, setLoadingThreats] = useState(false)
 
   useEffect(() => {
     if (!selectedCarrierId || activePerspectives.length === 0) return
@@ -108,6 +140,15 @@ export function DetailPanel() {
       .then((res) => { setClaims(res.claims); setLoadingClaims(false) })
       .catch(() => { setClaims([]); setLoadingClaims(false) })
   }, [selectedCarrierId, activePerspectives.join(',')])
+
+  useEffect(() => {
+    if (!selectedCarrierId) { setThreats([]); return }
+    setLoadingThreats(true)
+    api
+      .carrierThreats(selectedCarrierId, year)
+      .then((res) => { setThreats(res.threats); setLoadingThreats(false) })
+      .catch(() => { setThreats([]); setLoadingThreats(false) })
+  }, [selectedCarrierId, year])
 
   if (!selectedCarrierId) return null
 
@@ -223,6 +264,48 @@ export function DetailPanel() {
             </div>
           )
         })}
+
+        {/* Threats faced by this population at the current year. Backend
+            filters carrier_threat rows whose [date_min_year, date_max_year]
+            window contains `year`, so the section auto-updates as the user
+            scrubs the slider. */}
+        {(loadingThreats || threats.length > 0) && (
+          <div>
+            <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
+              Threats at {formatYear(year)}
+            </div>
+
+            {loadingThreats && (
+              <p className="text-xs text-gray-500">Loading threats…</p>
+            )}
+
+            <ul className="space-y-2">
+              {threats.map((t) => (
+                <li key={t.id} className={`border rounded-lg p-2 ${severityStyle(t.severity)}`}>
+                  <div className="flex items-baseline justify-between gap-2 mb-1">
+                    <span className="text-[10px] uppercase tracking-wide font-semibold opacity-80">
+                      {THREAT_TYPE_LABEL[t.threat_type] ?? t.threat_type}
+                    </span>
+                    <span className="text-[10px] opacity-70">
+                      severity {t.severity}/5
+                    </span>
+                  </div>
+                  <div className="text-xs font-medium mb-0.5">{t.display_name}</div>
+                  {t.description && (
+                    <p className="text-[11px] leading-snug opacity-90">{t.description}</p>
+                  )}
+                  {t.sources.length > 0 && (
+                    <ul className="mt-1 text-[10px] opacity-70 space-y-0.5">
+                      {t.sources.map((s) => (
+                        <li key={s.source_id} className="leading-snug">{s.citation}</li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Claims about this carrier (its trait mixes, propagation events).
             Stance differences across active perspectives are surfaced here —
