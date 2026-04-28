@@ -11,14 +11,17 @@ import {
   usePaleoBasemap,
   useContinentalShelf,
   usePaleoCoastlines,
+  useHistoricalPlaces,
 } from './hooks/useWorldQuery'
-import type { RenderMode, VizMode } from './state'
+import type { RenderMode, VizMode, LabelMode } from './state'
 
 export default function App() {
   const renderMode = useStore((s) => s.renderMode)
   const setRenderMode = useStore((s) => s.setRenderMode)
   const vizMode = useStore((s) => s.vizMode)
   const setVizMode = useStore((s) => s.setVizMode)
+  const labelMode = useStore((s) => s.labelMode)
+  const setLabelMode = useStore((s) => s.setLabelMode)
   const selectedCarrierId = useStore((s) => s.selectedCarrierId)
   const clickPoint = useStore((s) => s.clickPoint)
   const { data: worldData, loading, error } = useWorldQuery()
@@ -27,6 +30,7 @@ export default function App() {
     paleo?.sea_level_meters ?? null
   )
   const { data: paleoCoastlines } = usePaleoCoastlines()
+  const { data: historicalPlaces } = useHistoricalPlaces(labelMode === 'historical')
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
@@ -72,6 +76,32 @@ export default function App() {
           </div>
         </div>
 
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wide text-gray-500">Labels</span>
+          <div className="flex gap-1">
+            {(['modern', 'historical', 'none'] as LabelMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setLabelMode(mode)}
+                className={`text-xs px-2 py-1 rounded transition-colors ${
+                  labelMode === mode
+                    ? 'bg-amber-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+                title={
+                  mode === 'modern'
+                    ? 'Show modern OSM place names + borders'
+                    : mode === 'historical'
+                      ? 'Show era-appropriate place names (Constantinople, Tenochtitlan, etc.)'
+                      : 'Hide all labels — clean basemap'
+                }
+              >
+                {mode === 'modern' ? 'Modern' : mode === 'historical' ? 'Historical' : 'None'}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {loading && (
           <span className="text-xs text-gray-400 ml-auto">Fetching world…</span>
         )}
@@ -92,6 +122,7 @@ export default function App() {
           shelfGeojson={shelfGeojson}
           seaLevelMeters={paleo?.sea_level_meters ?? null}
           paleoCoastlines={paleoCoastlines}
+          historicalPlaces={historicalPlaces}
         />
 
         {/* Perspective picker — top-left overlay */}

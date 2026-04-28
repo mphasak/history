@@ -164,6 +164,21 @@ export interface CarrierThreatsResponse {
   threats: CarrierThreat[]
 }
 
+export interface HistoricalPlace {
+  id: string
+  display_name: string
+  centroid: GeoPoint
+  date_min_year: number
+  date_max_year: number
+  kind: string | null
+  description: string | null
+}
+
+export interface HistoricalPlacesResponse {
+  year: number
+  places: HistoricalPlace[]
+}
+
 export interface CarrierTimelineSnapshot {
   as_of_year: number
   domain: string
@@ -216,6 +231,9 @@ export const api = {
 
   carrierThreats: (carrierId: string, year: number): Promise<CarrierThreatsResponse> =>
     get(`/carrier/${carrierId}/threats`, { year }),
+
+  historicalPlaces: (year: number): Promise<HistoricalPlacesResponse> =>
+    get('/historical-places', { year }),
 
   claim: (claimId: number, perspectives: string[]): Promise<ClaimResponse> =>
     get(`/claim/${claimId}`, {

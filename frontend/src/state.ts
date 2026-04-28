@@ -2,6 +2,13 @@ import { create } from 'zustand'
 
 export type RenderMode = 'single' | 'side-by-side' | 'diff-overlay'
 export type VizMode = 'pointwise' | 'fill'
+/** Map label mode:
+ *  - `modern`     : modern political map with present-day place names + borders (default).
+ *  - `historical` : clean base + historical place names that match the current year
+ *                   (Constantinople, Tenochtitlan, etc., from the historical_place table).
+ *  - `none`       : clean base, no labels at all (best for paleo scrubs).
+ */
+export type LabelMode = 'modern' | 'historical' | 'none'
 
 export interface ClickPoint {
   lat: number
@@ -30,6 +37,9 @@ interface HistorySimState {
 
   vizMode: VizMode
   setVizMode: (mode: VizMode) => void
+
+  labelMode: LabelMode
+  setLabelMode: (mode: LabelMode) => void
 }
 
 // Read initial year + perspectives from URL params
@@ -70,6 +80,9 @@ export const useStore = create<HistorySimState>((set) => ({
 
   vizMode: 'pointwise',
   setVizMode: (mode) => set({ vizMode: mode }),
+
+  labelMode: 'modern',
+  setLabelMode: (mode) => set({ labelMode: mode }),
 }))
 
 function updateUrl(changes: { year?: number; perspectives?: string[] }) {

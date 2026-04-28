@@ -297,6 +297,7 @@ the lifetime of the map, so source existence is the right gate.
 | `db/005_seed_historical_carriers.sql` | 80 historical / hominin carriers (`CARR_HIST_*`, `CARR_HOMININ_*`) |
 | `db/006_seed_historical_carrier_ancestry.sql` | Ancestry mixes + cited claims (`[AUTO-PROVENANCE]`) for the carriers from 005 |
 | `db/007_carrier_threats.sql` | `carrier_threat` table + `threat_type` enum + 94 seeded threats with year windows and cited claims (`[AUTO-THREAT]`) |
+| `db/008_historical_places.sql` | `historical_place` table + 64 era-appropriate city/region labels keyed by `[date_min_year, date_max_year]` |
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
 | `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |

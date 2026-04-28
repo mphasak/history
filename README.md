@@ -153,17 +153,30 @@ history-simulator/
       `threat_type` enum, plus 94 seeded threats (climate, war,
       disease, colonization, megafauna loss, etc.) covering most of
       the carrier set with year windows and citations
+    - `historical-places-seed`
+      (`db/008_historical_places.sql`) — `historical_place` table
+      seeded with 64 era-appropriate place labels (Constantinople,
+      Tenochtitlan, Lutetia, etc.) with year windows that the map
+      uses in "Historical" label mode
 - Read endpoints with Perspective resolution: `/perspectives`,
   `/world` (with `disagreed_carrier_ids` side-channel), `/world/at`,
   `/carrier/{id}/timeline`, `/carrier/{id}/claims`,
   `/carrier/{id}/threats`, `/claim/{id}`,
   `/trait/{id}/lineage[-diff]`, `/paleo-basemap`, `/paleo-coastlines`
-  (proxied GPlates Web Service for deep time)
+  (proxied GPlates Web Service for deep time), `/historical-places`
 - World map with piecewise-log year slider (-10 Mya → 2025 with no
   year 0), epoch jump labels, and Perspective picker
 - Three-source paleo basemap: modern OSM tiles + four pre-eroded
   continental-shelf depth bands (-25/-50/-90/-150 m) selected by
   current sea level + GPlates deep-time coastlines for year < -3 Mya
+- Three-mode label control:
+  - **Modern**: CartoDB Voyager labels with present-day place names
+    and borders
+  - **Historical**: hide modern labels and surface era-appropriate
+    place names (Constantinople 330–1453, Tenochtitlan 1325–1521,
+    Beringia / Doggerland / Sundaland / Sahul during their
+    Pleistocene windows, etc.)
+  - **None**: clean basemap with no labels — best for paleo scrubs
 - Click-anywhere-on-map → carriers covering that spacetime point,
   ranked by distance, with proper BCE/CE formatting
 - Pointwise / fill visualization toggle with a legend that swaps

@@ -12,6 +12,7 @@ from .routes.claim import router as claim_router
 from .routes.carrier import router as carrier_router
 from .routes.basemap import router as basemap_router
 from .routes.gplates import router as gplates_router
+from .routes.places import router as places_router
 
 
 @asynccontextmanager
@@ -43,6 +44,7 @@ app.include_router(claim_router)
 app.include_router(carrier_router)
 app.include_router(basemap_router)
 app.include_router(gplates_router)
+app.include_router(places_router)
 
 
 @app.get("/healthz")

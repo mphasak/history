@@ -225,6 +225,34 @@ async def test_carrier_claims_endpoint_roman_provenance(client):
 
 
 @pytest.mark.asyncio
+async def test_historical_places_filters_by_year(client):
+    """
+    /historical-places?year=Y returns only places whose date window covers Y.
+    Constantinople is named Constantinople from 330 to 1453; Byzantium
+    occupies the same site from -657 to 329. They're mutually exclusive.
+    """
+    r = await client.get("/historical-places", params={"year": 400})
+    if r.status_code == 404:
+        pytest.skip("/historical-places missing — places seed not applied")
+    assert r.status_code == 200
+    names_400 = {p["display_name"] for p in r.json()["places"]}
+    if not names_400:
+        pytest.skip("No historical places seeded")
+    assert "Constantinople" in names_400
+    assert "Byzantium" not in names_400, (
+        "Byzantium should NOT show at year 400 (window ended 329)"
+    )
+
+    r2 = await client.get("/historical-places", params={"year": 100})
+    assert r2.status_code == 200
+    names_100 = {p["display_name"] for p in r2.json()["places"]}
+    assert "Byzantium" in names_100
+    assert "Constantinople" not in names_100, (
+        "Constantinople should NOT show at year 100 (founded 330)"
+    )
+
+
+@pytest.mark.asyncio
 async def test_carrier_threats_endpoint_filters_by_year(client):
     """
     /carrier/{id}/threats?year=Y returns only threats whose date window

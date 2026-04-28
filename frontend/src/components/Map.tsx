@@ -17,21 +17,51 @@ export const DOMAIN_COLORS: Record<string, string> = {
   other: '#9ca3af',
 }
 
+// CartoDB Voyager tiles let us split the base layer from the labels raster,
+// so the user can swap modern labels off (e.g. for "Historical" or "None"
+// label modes). Both tiles are public, no API key required, with
+// attribution to OSM + CARTO.
+const CARTODB_ATTRIBUTION =
+  '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
+  '© <a href="https://carto.com/attributions">CARTO</a>'
+
 const OSM_STYLE: maplibregl.StyleSpecification = {
   version: 8,
-  // Required so symbol layers using `text-field` (e.g. carrier labels) can resolve
-  // glyphs. MapLibre's free demo glyph endpoint covers basic Latin and is
-  // sufficient for carrier display names.
+  // Required so symbol layers using `text-field` (e.g. carrier labels and
+  // the historical-places layer) can resolve glyphs. MapLibre's demo glyph
+  // endpoint covers basic Latin and is sufficient for our display names.
   glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {
-    osm: {
+    'osm-base': {
       type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tiles: [
+        'https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png',
+      ],
       tileSize: 256,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      attribution: CARTODB_ATTRIBUTION,
+    },
+    'osm-labels': {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: CARTODB_ATTRIBUTION,
     },
   },
-  layers: [{ id: 'osm-tiles', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 }],
+  layers: [
+    { id: 'osm-base-tiles',   type: 'raster', source: 'osm-base',   minzoom: 0, maxzoom: 19 },
+    // `osm-labels-tiles` is added after our paleo / carrier layers below so
+    // it draws on top — but its visibility is driven by labelMode and it's
+    // hidden in 'historical' / 'none' modes.
+    { id: 'osm-labels-tiles', type: 'raster', source: 'osm-labels', minzoom: 0, maxzoom: 19 },
+  ],
 }
 
 interface MapInstanceProps {
@@ -44,6 +74,10 @@ interface MapInstanceProps {
   shelfVisible?: boolean
   /** Optional GeoJSON of paleo-coastlines from GPlates for deep time. */
   paleoCoastlines?: GeoJSON.FeatureCollection | null
+  /** Era-appropriate place labels — fed in by the parent so all map instances
+   * (single, side-by-side, diff) share one fetch. Undefined when labelMode
+   * isn't "historical". */
+  historicalPlaces?: { id: string; display_name: string; centroid: { lat: number; lon: number }; kind: string | null }[]
   perspectiveId: string
   diffCarrierIds?: Set<string>
   onCarrierClick: (carrierId: string) => void
@@ -59,6 +93,7 @@ function useMapInstance({
   shelfGeojson,
   shelfVisible,
   paleoCoastlines,
+  historicalPlaces,
   diffCarrierIds,
   onCarrierClick,
   onMapClick,
@@ -73,6 +108,7 @@ function useMapInstance({
   const vizMode = useStore((s) => s.vizMode)
   const vizModeRef = useRef(vizMode)
   useEffect(() => { vizModeRef.current = vizMode }, [vizMode])
+  const labelMode = useStore((s) => s.labelMode)
 
   useEffect(() => {
     const container = document.getElementById(containerId)
@@ -354,6 +390,50 @@ function useMapInstance({
         map.getCanvas().style.cursor = ''
       })
 
+      // Historical place labels (city / region names that match the queried
+      // year — e.g. Constantinople from 330 to 1453). Rendered as a symbol
+      // layer fed by /historical-places. Visibility tracks labelMode.
+      map.addSource('historical-places', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+
+      map.addLayer({
+        id: 'historical-places-label',
+        type: 'symbol',
+        source: 'historical-places',
+        layout: {
+          'text-field': ['get', 'display_name'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': [
+            'case',
+            ['==', ['get', 'kind'], 'region'],
+            14,
+            12,
+          ],
+          'text-letter-spacing': [
+            'case',
+            ['==', ['get', 'kind'], 'region'],
+            0.15,
+            0,
+          ],
+          'text-transform': [
+            'case',
+            ['==', ['get', 'kind'], 'region'],
+            'uppercase',
+            'none',
+          ],
+          'text-allow-overlap': false,
+          'text-padding': 4,
+          visibility: 'none',
+        },
+        paint: {
+          'text-color': '#fde68a',  // amber-200, distinct from carrier-name white
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1.5,
+        },
+      })
+
       // Apply initial viz mode visibility once layers exist
       const v = vizModeRef.current
       const fillVis = v === 'fill' ? 'visible' : 'none'
@@ -606,6 +686,53 @@ function useMapInstance({
     else map.once('load', apply)
   }, [paleoFeatures])
 
+  // Update historical-places source + visibility together. Same combined
+  // pattern as the shelf effect: data and visibility flip in lockstep so
+  // toggling the label mode never leaves stale labels on screen.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const source = map.getSource('historical-places') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
+      const places = labelMode === 'historical' ? (historicalPlaces ?? []) : []
+      const features: GeoJSON.Feature[] = places.map((p) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [p.centroid.lon, p.centroid.lat] },
+        properties: {
+          id: p.id,
+          display_name: p.display_name,
+          kind: p.kind ?? 'city',
+        },
+      }))
+      source.setData({ type: 'FeatureCollection', features })
+      const vis = labelMode === 'historical' && features.length > 0 ? 'visible' : 'none'
+      if (map.getLayer('historical-places-label')) {
+        map.setLayoutProperty('historical-places-label', 'visibility', vis)
+      }
+    }
+    if (map.getSource('historical-places')) apply()
+    else map.once('load', apply)
+  }, [historicalPlaces, labelMode])
+
+  // Toggle the modern OSM label raster. Hidden in 'historical' / 'none'
+  // modes so the user can read the carrier and historical-place labels
+  // without modern names crowding them out.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      if (!map.getLayer('osm-labels-tiles')) return
+      map.setLayoutProperty(
+        'osm-labels-tiles',
+        'visibility',
+        labelMode === 'modern' ? 'visible' : 'none',
+      )
+    }
+    if (map.getLayer('osm-labels-tiles')) apply()
+    else map.once('load', apply)
+  }, [labelMode])
+
   // Toggle layer visibility based on viz mode
   useEffect(() => {
     const map = mapRef.current
@@ -639,6 +766,7 @@ function SingleMap({
   shelfGeojson,
   shelfVisible,
   paleoCoastlines,
+  historicalPlaces,
   perspectiveId,
   onCarrierClick,
   onMapClick,
@@ -649,6 +777,7 @@ function SingleMap({
   shelfGeojson: GeoJSON.FeatureCollection | null
   shelfVisible: boolean
   paleoCoastlines: GeoJSON.FeatureCollection | null
+  historicalPlaces: MapInstanceProps['historicalPlaces']
   perspectiveId: string
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -662,6 +791,7 @@ function SingleMap({
     shelfGeojson,
     shelfVisible,
     paleoCoastlines,
+    historicalPlaces,
     perspectiveId,
     onCarrierClick,
     onMapClick,
@@ -680,6 +810,8 @@ interface MapProps {
   seaLevelMeters?: number | null
   /** Deep-time paleo coastlines from GPlates. */
   paleoCoastlines?: GeoJSON.FeatureCollection | null
+  /** Era-appropriate place labels — only populated when labelMode='historical'. */
+  historicalPlaces?: MapInstanceProps['historicalPlaces']
 }
 
 export function WorldMap({
@@ -688,6 +820,7 @@ export function WorldMap({
   paleoFeatures = [],
   shelfGeojson = null,
   paleoCoastlines = null,
+  historicalPlaces = [],
 }: MapProps) {
   const shelfVisible = (shelfGeojson?.features?.length ?? 0) > 0
   const renderMode = useStore((s) => s.renderMode)
@@ -731,6 +864,7 @@ export function WorldMap({
         shelfGeojson={shelfGeojson}
         shelfVisible={shelfVisible}
         paleoCoastlines={paleoCoastlines}
+        historicalPlaces={historicalPlaces}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
       />
@@ -752,6 +886,7 @@ export function WorldMap({
           shelfGeojson={shelfGeojson}
           shelfVisible={shelfVisible}
           paleoCoastlines={paleoCoastlines}
+          historicalPlaces={historicalPlaces}
           diffIds={diffIds}
           onCarrierClick={handleCarrierClick}
           onMapClick={handleMapClick}
@@ -773,6 +908,7 @@ export function WorldMap({
         shelfGeojson={shelfGeojson}
         shelfVisible={shelfVisible}
         paleoCoastlines={paleoCoastlines}
+        historicalPlaces={historicalPlaces}
         perspectiveId={pid}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
@@ -788,6 +924,7 @@ function SideBySideMap({
   shelfGeojson,
   shelfVisible,
   paleoCoastlines,
+  historicalPlaces,
   onCarrierClick,
   onMapClick,
 }: {
@@ -797,6 +934,7 @@ function SideBySideMap({
   shelfGeojson: GeoJSON.FeatureCollection | null
   shelfVisible: boolean
   paleoCoastlines: GeoJSON.FeatureCollection | null
+  historicalPlaces: MapInstanceProps['historicalPlaces']
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
 }) {
@@ -816,6 +954,7 @@ function SideBySideMap({
     shelfGeojson,
     shelfVisible,
     paleoCoastlines,
+    historicalPlaces,
     perspectiveId: leftPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -831,6 +970,7 @@ function SideBySideMap({
     shelfGeojson,
     shelfVisible,
     paleoCoastlines,
+    historicalPlaces,
     perspectiveId: rightPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -869,6 +1009,7 @@ function DiffMapUpdater({
   shelfGeojson,
   shelfVisible,
   paleoCoastlines,
+  historicalPlaces,
   diffIds,
   onCarrierClick,
   onMapClick,
@@ -879,6 +1020,7 @@ function DiffMapUpdater({
   shelfGeojson: GeoJSON.FeatureCollection | null
   shelfVisible: boolean
   paleoCoastlines: GeoJSON.FeatureCollection | null
+  historicalPlaces: MapInstanceProps['historicalPlaces']
   diffIds: Set<string>
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -891,6 +1033,7 @@ function DiffMapUpdater({
     shelfGeojson,
     shelfVisible,
     paleoCoastlines,
+    historicalPlaces,
     perspectiveId: 'diff',
     diffCarrierIds: diffIds,
     onCarrierClick,

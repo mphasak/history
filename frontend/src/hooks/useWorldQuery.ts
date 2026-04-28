@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react'
-import { api, WorldResponse, Perspective, PaleoBasemapResponse } from '../api'
+import {
+  api,
+  WorldResponse,
+  Perspective,
+  PaleoBasemapResponse,
+  HistoricalPlace,
+} from '../api'
 import { useStore } from '../state'
 
 interface WorldQueryResult {
@@ -203,6 +209,43 @@ export function useContinentalShelf(seaLevelMeters: number | null | undefined): 
   }, [seaLevelMeters])
 
   return { data, band, loading }
+}
+
+// Historical place labels (Constantinople, Tenochtitlan, etc.) filtered to
+// the carriers/year window. Only fired when label mode is "historical" so
+// the modern-label fallback path doesn't pay for the fetch.
+export function useHistoricalPlaces(enabled: boolean): {
+  data: HistoricalPlace[]
+  loading: boolean
+} {
+  const year = useStore((s) => s.year)
+  const [data, setData] = useState<HistoricalPlace[]>([])
+  const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    if (!enabled) {
+      setData([])
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    api
+      .historicalPlaces(year)
+      .then((res) => {
+        if (!cancelled) {
+          setData(res.places)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setData([])
+          setLoading(false)
+        }
+      })
+    return () => { cancelled = true }
+  }, [year, enabled])
+  return { data, loading }
 }
 
 export function usePerspectives(): PerspectivesResult {
