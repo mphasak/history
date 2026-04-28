@@ -258,7 +258,9 @@ export function DetailPanel() {
                     </span>
                   </div>
                   <p className="text-xs text-gray-200 leading-snug mb-2">
-                    {claim.statement}
+                    {/* Strip the internal [AUTO-PROVENANCE] tag used as an idempotency
+                        key on seeded ancestry claims — the user doesn't need to see it. */}
+                    {claim.statement.replace(/^\[AUTO-PROVENANCE\]\s*/, '')}
                   </p>
 
                   {/* Per-perspective stance + override + sources */}
