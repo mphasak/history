@@ -8,7 +8,7 @@ These tests verify the core design invariant: two Perspectives active on the
 same (year, bbox) query return distinct, non-collapsed views.
 """
 import pytest
-from src.resolver import resolve_world, resolve_claim
+from src.resolver import resolve_world, resolve_claim, resolve_carrier_claims
 
 
 BBOX_NW_SOUTH_ASIA = [60.0, 20.0, 90.0, 40.0]
@@ -156,3 +156,98 @@ async def test_resolve_world_two_perspectives_distinct(aconn):
     ooi_carrier = get_carrier(result[PERSP_OOI], CARRIER_ID)
     assert amt_carrier is not None, f"AMT missing {CARRIER_ID}"
     assert ooi_carrier is not None, f"OOI missing {CARRIER_ID}"
+
+
+@pytest.mark.asyncio
+async def test_resolve_world_disagreed_carrier_ids_marks_indo_aryan(aconn):
+    """
+    The world response surfaces a `_disagreed_carrier_ids` side-channel listing
+    carriers whose related claims (about the carrier, its trait mixes, or
+    propagation events overlapping it) receive different stances under the
+    active perspectives. The diff overlay relies on this — without it the
+    Indo-Aryan carrier would render as agreed, since the disagreement lives
+    on Claim 22 (Steppe migration) rather than on the carrier itself.
+    """
+    # Use a wide bbox so the carrier definitely makes the cut.
+    result = await resolve_world(
+        aconn, YEAR, [-180.0, -85.0, 180.0, 85.0], [PERSP_AMT, PERSP_OOI]
+    )
+    disagreed = result.get("_disagreed_carrier_ids", [])
+    assert CARRIER_ID in disagreed, (
+        f"{CARRIER_ID} should be flagged in _disagreed_carrier_ids; got {disagreed}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_world_disagreed_empty_for_single_perspective(aconn):
+    """
+    With only one perspective active, no disagreement is possible. The
+    side-channel must be empty.
+    """
+    result = await resolve_world(
+        aconn, YEAR, [-180.0, -85.0, 180.0, 85.0], [PERSP_AMT]
+    )
+    assert result.get("_disagreed_carrier_ids", []) == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_carrier_claims_returns_steppe_migration(aconn):
+    """
+    resolve_carrier_claims for the NW South Asia carrier under AMT+OOI should
+    surface the Steppe migration claim (about PROP_INDO_ARYAN_GENETIC) with
+    AMT endorses / OOI nuances and the OOI override statement.
+    """
+    claims = await resolve_carrier_claims(aconn, CARRIER_ID, [PERSP_AMT, PERSP_OOI])
+    assert claims, f"resolve_carrier_claims returned no claims for {CARRIER_ID}"
+
+    contested = [c for c in claims if c["has_disagreement"]]
+    assert contested, (
+        "Expected at least one disputed claim for the Indo-Aryan carrier; "
+        "got none, which would mean the diff overlay can't find anything to mark."
+    )
+
+    # The Steppe migration claim is about a propagation event.
+    steppe = next(
+        (c for c in contested if c["subject_kind"] == "propagation_event"),
+        None,
+    )
+    assert steppe is not None, (
+        "Expected a propagation-event claim among the contested set"
+    )
+    assert steppe["perspectives"][PERSP_AMT]["stance"] == "endorses"
+    assert steppe["perspectives"][PERSP_OOI]["stance"] == "nuances"
+    assert steppe["perspectives"][PERSP_OOI]["override_statement"], (
+        "Expected OOI to provide an override statement on the Steppe claim"
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_carrier_claims_surfaces_provenance_for_romans(aconn):
+    """
+    The 006 ancestry seed adds an [AUTO-PROVENANCE] claim per historical
+    carrier that cites a published source. Romans should surface a
+    propagation-or-carrier claim citing Antonio 2019.
+    """
+    claims = await resolve_carrier_claims(
+        aconn, "CARR_HIST_ROMAN", [PERSP_REICH]
+    )
+    if not claims:
+        pytest.skip(
+            "No claims attached to CARR_HIST_ROMAN — provenance seed not applied"
+        )
+
+    # Find a carrier-subject claim (the AUTO-PROVENANCE one) and verify Antonio
+    # 2019 appears among its sources.
+    carrier_claims = [c for c in claims if c["subject_kind"] == "carrier"]
+    assert carrier_claims, (
+        "Expected a carrier-subject AUTO-PROVENANCE claim for CARR_HIST_ROMAN"
+    )
+    sources = [
+        s["source_id"]
+        for c in carrier_claims
+        for pv in c["perspectives"].values()
+        for s in pv["sources"]
+    ]
+    assert "ANTONIO_2019" in sources, (
+        f"Expected ANTONIO_2019 in Roman provenance sources; got {sources}"
+    )

@@ -44,10 +44,18 @@ The backend API is at `http://localhost:8000` (OpenAPI docs at `/docs`).
 1. Change the Perspective picker to **PERSP_INDIAN_AMT** and **PERSP_INDIAN_OOI**.
 2. Scrub the year slider to **-1700** (1700 BCE).
 3. Click the carrier dot in NW South Asia.
-4. The detail panel shows two columns — AMT and OOI — with different trait
-   mixes and the OOI override statement contesting timing/directionality.
-5. Toggle **Diff Overlay** mode. The disputed carrier renders in red, indicating
-   that the active perspectives disagree about it.
+4. The detail panel shows two columns with the (identical) trait mixes
+   plus a **Claims about this population** section. The Steppe-migration
+   claim is highlighted as contested: AMT *endorses* it, citing
+   Narasimhan 2019 and Reich Ch. 6 (with weight overrides shown);
+   OOI *nuances* it with the override statement
+   *"Genetic Steppe signal acknowledged but interpreted as much earlier
+   and/or bidirectional, not a 2000-1500 BCE Aryan migration."*
+5. Toggle **Diff Overlay** mode. The disputed carrier renders in red.
+   The diff is computed from claim-level stance differences, so
+   carriers can light up even when their trait mixes and per-carrier
+   endorsements match — the disagreement lives on the propagation
+   event, not the carrier row itself.
 
 ## Architecture
 
@@ -126,15 +134,45 @@ history-simulator/
 ## What's in scope (Phase 0)
 
 - Postgres + PostGIS schema (v0.3)
-- Ingestion of the seed dataset (18 traits, 5 carriers, 7 perspectives)
-- Six read endpoints with Perspective resolution
-- World map with year slider and Perspective picker
-- Click-anywhere-on-map → carriers covering that spacetime point
-- Pointwise / fill visualization toggle with a legend
-- Paleo overlays (land bridges, ice sheets) driven by physical_feature_snapshot
-- Side-by-side and diff-overlay perspective comparison modes
-- Detail panel showing per-perspective trait mixes
-- Indo-Aryan demo working end to end
+- Ingestion of the seed dataset (18 traits, 24 carriers, 7 perspectives)
+  from `template_v0.3.xlsx`, plus four idempotent seed services applied
+  by docker-compose:
+    - `paleo-seed` (`db/003_seed_paleo_features.sql`) — ice-sheet
+      polygons + paleoclimate keyframes
+    - `genetics-seed` (`db/004_seed_population_genetics.sql`) — Reich-
+      style ancestry components and Pleistocene/Holocene carriers
+    - `carriers-seed` (`db/005_seed_historical_carriers.sql`) — 80
+      additional carriers spanning non-sapiens hominins, early sapiens,
+      additional UP/Mesolithic clusters, and Holocene/historical
+      ethnolinguistic groups
+    - `carriers-provenance-seed`
+      (`db/006_seed_historical_carrier_ancestry.sql`) — ancestry
+      breakdowns + cited claims for the carriers from 005
+- Read endpoints with Perspective resolution: `/perspectives`,
+  `/world` (with `disagreed_carrier_ids` side-channel), `/world/at`,
+  `/carrier/{id}/timeline`, `/carrier/{id}/claims`, `/claim/{id}`,
+  `/trait/{id}/lineage[-diff]`, `/paleo-basemap`, `/paleo-coastlines`
+  (proxied GPlates Web Service for deep time)
+- World map with piecewise-log year slider (-10 Mya → 2025 with no
+  year 0), epoch jump labels, and Perspective picker
+- Three-source paleo basemap: modern OSM tiles + four pre-eroded
+  continental-shelf depth bands (-25/-50/-90/-150 m) selected by
+  current sea level + GPlates deep-time coastlines for year < -3 Mya
+- Click-anywhere-on-map → carriers covering that spacetime point,
+  ranked by distance, with proper BCE/CE formatting
+- Pointwise / fill visualization toggle with a legend that swaps
+  content based on viz mode and active paleo features
+- Paleo overlays (land bridges, ice sheets) driven by
+  physical_feature_snapshot
+- Side-by-side and diff-overlay perspective comparison modes; diff
+  overlay marks carriers contested at the *claim* layer (carrier
+  itself, its trait mixes, or propagation events overlapping it)
+- Detail panel showing per-perspective trait mixes plus a
+  "Claims about this population" section with stance badges
+  (endorses / nuances / rejects / asserts), override statements,
+  and citation lists with weight-override annotations
+- Indo-Aryan demo working end to end with the contested-knowledge
+  rendering visible (claim text, stance split, citations)
 
 ## What's deferred
 

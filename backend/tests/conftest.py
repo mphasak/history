@@ -1,5 +1,6 @@
 import os
 import pytest
+import pytest_asyncio
 import psycopg
 from psycopg.rows import dict_row
 
@@ -20,7 +21,10 @@ def db_conn():
         pytest.skip(f"Database not available: {e}")
 
 
-@pytest.fixture
+# Async fixtures need `@pytest_asyncio.fixture` (not `@pytest.fixture`) under
+# pytest-asyncio 0.23+; otherwise they trigger PytestRemovedIn9Warning and
+# tests fail to collect.
+@pytest_asyncio.fixture
 async def aconn():
     """Async connection for resolver tests."""
     try:

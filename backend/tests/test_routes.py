@@ -7,6 +7,7 @@ Run: DATABASE_URL='...' uvicorn src.main:app --port 8000
 """
 import os
 import pytest
+import pytest_asyncio
 import psycopg
 from psycopg.rows import dict_row
 from httpx import AsyncClient
@@ -18,7 +19,7 @@ DSN = os.environ.get(
 BASE_URL = os.environ.get("API_URL", "http://localhost:8000")
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client():
     """Connect to the running FastAPI server (function-scoped to avoid event loop issues)."""
     async with AsyncClient(base_url=BASE_URL, timeout=10.0) as c:
@@ -151,3 +152,100 @@ async def test_paleo_basemap(client):
     assert data["year"] == -1700
     assert "sea_level_meters" in data
     assert "physical_features" in data
+
+
+@pytest.mark.asyncio
+async def test_world_disagreed_carrier_ids_indo_aryan(client):
+    """
+    /world surfaces disagreed_carrier_ids — the diff overlay reads this
+    directly. The Indo-Aryan carrier must be flagged when AMT+OOI are active.
+    """
+    r = await client.get(
+        "/world",
+        params={
+            "year": -1700,
+            "bbox": "-180,-85,180,85",
+            "perspectives": "PERSP_INDIAN_AMT,PERSP_INDIAN_OOI",
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert "CARR_NW_SOUTH_ASIA_LATE_BRONZE" in data.get("disagreed_carrier_ids", []), (
+        "Diff overlay would not mark the disputed Indo-Aryan carrier — "
+        f"got disagreed={data.get('disagreed_carrier_ids')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_carrier_claims_endpoint_indo_aryan(client):
+    """
+    /carrier/{id}/claims returns the Steppe migration claim with AMT endorses /
+    OOI nuances and the OOI override statement attached.
+    """
+    r = await client.get(
+        "/carrier/CARR_NW_SOUTH_ASIA_LATE_BRONZE/claims",
+        params={"perspectives": "PERSP_INDIAN_AMT,PERSP_INDIAN_OOI"},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    contested = [c for c in data["claims"] if c["has_disagreement"]]
+    assert contested, "Expected at least one disputed claim for NW South Asia"
+
+    steppe = next(
+        (c for c in contested if c["subject_kind"] == "propagation_event"), None
+    )
+    assert steppe is not None
+    assert steppe["perspectives"]["PERSP_INDIAN_AMT"]["stance"] == "endorses"
+    assert steppe["perspectives"]["PERSP_INDIAN_OOI"]["stance"] == "nuances"
+    assert steppe["perspectives"]["PERSP_INDIAN_OOI"]["override_statement"]
+
+
+@pytest.mark.asyncio
+async def test_carrier_claims_endpoint_roman_provenance(client):
+    """
+    Romans get an [AUTO-PROVENANCE] claim citing Antonio 2019 from the 006
+    seed. Verify the route surfaces it.
+    """
+    r = await client.get(
+        "/carrier/CARR_HIST_ROMAN/claims",
+        params={"perspectives": "PERSP_REICH_2018"},
+    )
+    if r.status_code == 404:
+        pytest.skip("CARR_HIST_ROMAN missing — historical-carriers seed not applied")
+    assert r.status_code == 200
+    data = r.json()
+    sources = [
+        s["source_id"]
+        for c in data["claims"]
+        if c["subject_kind"] == "carrier"
+        for pv in c["perspectives"].values()
+        for s in pv["sources"]
+    ]
+    assert "ANTONIO_2019" in sources, f"Expected ANTONIO_2019 cite for Romans; got {sources}"
+
+
+@pytest.mark.asyncio
+async def test_world_carrier_count_grows_with_historical_seed(client):
+    """
+    The 005 seed adds historical/ethnolinguistic carriers across the Holocene.
+    At 0 CE we expect well more than the spreadsheet's 3 active carriers
+    (the Holocene was previously empty); now we should see double-digits.
+    """
+    r = await client.get(
+        "/world",
+        params={
+            "year": 0,
+            "bbox": "-180,-85,180,85",
+            "perspectives": "PERSP_REICH_2018",
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    carriers = data["perspectives"]["PERSP_REICH_2018"]["carriers"]
+    if len(carriers) < 4:
+        pytest.skip(
+            f"Only {len(carriers)} carriers at year 0 — historical seed not applied"
+        )
+    assert len(carriers) >= 10, (
+        f"Expected >=10 carriers at year 0 once 005 is seeded; got {len(carriers)}"
+    )
