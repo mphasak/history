@@ -6,7 +6,12 @@ import { DetailPanel } from './components/DetailPanel'
 import { ClickPointPanel } from './components/ClickPointPanel'
 import { DiffLegend } from './components/DiffOverlay'
 import { Legend } from './components/Legend'
-import { useWorldQuery, usePaleoBasemap } from './hooks/useWorldQuery'
+import {
+  useWorldQuery,
+  usePaleoBasemap,
+  useContinentalShelf,
+  usePaleoCoastlines,
+} from './hooks/useWorldQuery'
 import type { RenderMode, VizMode } from './state'
 
 export default function App() {
@@ -18,6 +23,8 @@ export default function App() {
   const clickPoint = useStore((s) => s.clickPoint)
   const { data: worldData, loading, error } = useWorldQuery()
   const { data: paleo } = usePaleoBasemap()
+  const { data: shelfGeojson } = useContinentalShelf()
+  const { data: paleoCoastlines } = usePaleoCoastlines()
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
@@ -80,6 +87,9 @@ export default function App() {
           worldData={worldData}
           loading={loading}
           paleoFeatures={paleo?.physical_features ?? []}
+          shelfGeojson={shelfGeojson}
+          seaLevelMeters={paleo?.sea_level_meters ?? null}
+          paleoCoastlines={paleoCoastlines}
         />
 
         {/* Perspective picker — top-left overlay */}
@@ -93,6 +103,8 @@ export default function App() {
             worldData={worldData}
             paleoFeatures={paleo?.physical_features ?? []}
             seaLevelMeters={paleo?.sea_level_meters}
+            shelfVisible={(paleo?.sea_level_meters ?? 0) <= -50}
+            deepTimeActive={(paleoCoastlines?.features?.length ?? 0) > 0}
           />
         </div>
 

@@ -23,3 +23,10 @@ CREATE INDEX idx_claim_source ON claim_source (claim_id);
 CREATE INDEX idx_carrier_trait_mix_carrier ON carrier_trait_mix (carrier_id, as_of_year);
 CREATE INDEX idx_trait_relation_child ON trait_relation (child_id);
 CREATE INDEX idx_trait_relation_parent ON trait_relation (parent_id);
+
+-- Paleo-basemap DISTINCT ON (feature_id ORDER BY as_of_year DESC)
+CREATE INDEX idx_pfs_feature_year ON physical_feature_snapshot (feature_id, as_of_year DESC);
+
+-- trait_observation date+location filter
+CREATE INDEX idx_trait_obs_dates ON trait_observation (date_min_year, date_max_year);
+CREATE INDEX idx_trait_obs_location ON trait_observation USING GIST (location);

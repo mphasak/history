@@ -87,6 +87,85 @@ export function usePaleoBasemap(): PaleoResult {
   return { data, loading, error }
 }
 
+// GPlates paleo-coastlines for deep time (year < -3 Mya). Cached client-side
+// keyed by year (rounded server-side to 0.5 Ma).
+const DEEP_TIME_THRESHOLD = -3_000_000
+
+export function usePaleoCoastlines(): {
+  data: GeoJSON.FeatureCollection | null
+  loading: boolean
+  error: string | null
+} {
+  const year = useStore((s) => s.year)
+  const [data, setData] = useState<GeoJSON.FeatureCollection | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (year > DEEP_TIME_THRESHOLD) {
+      setData(null)
+      setError(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    api
+      .paleoCoastlines(year)
+      .then((d) => {
+        if (!cancelled) {
+          setData(d)
+          setLoading(false)
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(String(e))
+          setData(null)
+          setLoading(false)
+        }
+      })
+    return () => { cancelled = true }
+  }, [year])
+
+  return { data, loading, error }
+}
+
+// Continental shelf — polygon of L_0 minus K_200 from Natural Earth bathymetry.
+// Fetched once and cached for the session (~2MB).
+let _shelfPromise: Promise<GeoJSON.FeatureCollection> | null = null
+function loadShelf(): Promise<GeoJSON.FeatureCollection> {
+  if (_shelfPromise) return _shelfPromise
+  _shelfPromise = fetch('/paleo/continental_shelf.geojson').then((r) => {
+    if (!r.ok) throw new Error(`shelf load failed: ${r.status}`)
+    return r.json() as Promise<GeoJSON.FeatureCollection>
+  })
+  return _shelfPromise
+}
+
+export function useContinentalShelf(): {
+  data: GeoJSON.FeatureCollection | null
+  loading: boolean
+} {
+  const [data, setData] = useState<GeoJSON.FeatureCollection | null>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let cancelled = false
+    loadShelf()
+      .then((d) => {
+        if (!cancelled) {
+          setData(d)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [])
+  return { data, loading }
+}
+
 export function usePerspectives(): PerspectivesResult {
   const [perspectives, setPerspectives] = useState<Perspective[]>([])
   const [loading, setLoading] = useState(true)

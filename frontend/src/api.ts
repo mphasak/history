@@ -182,6 +182,9 @@ export const api = {
 
   paleoBasemap: (year: number, perspective?: string): Promise<PaleoBasemapResponse> =>
     get('/paleo-basemap', { year, perspective }),
+
+  paleoCoastlines: (year: number, model?: string): Promise<GeoJSON.FeatureCollection> =>
+    get('/paleo-coastlines', { year, model }),
 }
 
 export interface PaleoFeature {

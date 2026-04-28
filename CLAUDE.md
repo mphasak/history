@@ -123,14 +123,42 @@ See `backend/src/perspectives.py` for the pattern.
 Years are BCE-negative, CE-positive, with no year 0 (`-1` = 1 BCE, `1` = 1 CE).
 This applies to the slider, time-window queries, and display formatting.
 
-### Paleo features use a NULL-geometry sentinel for "disappeared"
+### Paleo coastlines use a three-source hybrid
 
-`physical_feature_snapshot.geometry` is nullable. A snapshot with `geometry IS NULL`
-at year Y means "this feature is gone as of Y". The `/paleo-basemap` endpoint
-returns the latest snapshot ≤ year via `DISTINCT ON (feature_id) ... ORDER BY
-feature_id, as_of_year DESC`, so the NULL row wins for years past disappearance.
-Frontend filters out null geometries before rendering. Use this pattern when
-adding more paleo features rather than introducing a `valid_until_year` column.
+The map's "where was land at this year?" rendering pulls from three sources:
+
+1. **Modern OSM tiles** — always shown as the base layer.
+2. **Continental-shelf overlay** (`frontend/public/paleo/continental_shelf.geojson`,
+   ~2 MB) — Natural Earth bathymetry with `L_0 - K_200` (modern ocean minus
+   ocean-below-200m). Rendered as exposed land when `paleoclimate_state.sea_level_meters
+   <= -50`. Covers Pleistocene low-stands (Beringia / Sundaland / Sahul / Doggerland).
+   Built once via `/tmp/build_shelf.py` (shapely required); regenerate only when NE
+   updates the source data.
+3. **GPlates Web Service** (`https://gws.gplates.org`, model `MULLER2019`) — proxied
+   by `backend/src/routes/gplates.py` for `year < -3 Mya`. In-memory cache keyed by
+   (rounded-time-Ma, model). Frontend hook `usePaleoCoastlines` only fires for deep
+   time. Upstream is rate-limited and slow on cache miss (~5–10 s for first request
+   per timestep); subsequent ones are instant.
+
+Hand-authored polygons (`physical_feature_snapshot.geometry`) are still used for
+ice sheets, where sea-level + bathymetry doesn't apply. A snapshot with
+`geometry IS NULL` at year Y means "this feature is gone as of Y" — the
+`/paleo-basemap` endpoint uses `DISTINCT ON (feature_id) ... ORDER BY feature_id,
+as_of_year DESC` so the NULL row wins for years past disappearance.
+
+### Year range and slider
+
+The slider (`frontend/src/components/YearSlider.tsx`) is piecewise-log:
+**slider position [0, 200] → year [-10 Mya, -300 kya]** (deep time, 20% of bar) and
+**[200, 1000] → year [-300 kya, 2025]** (sapiens, 80% of bar). Both regions are
+log-scaled in years-before-present so recent history gets proportionally more
+positions. The amber tick at 20% marks the deep-time/sapiens boundary, and there
+are click-to-jump epoch labels along the bottom.
+
+Schema-side, `integer` year columns trivially handle negative millions of years.
+The resolver's date-window queries (`date_min_year <= y AND date_max_year >= y`)
+work unchanged — there's just no carrier seed data older than the spreadsheet's
+oldest entry, so deep-time scrubs show only paleo coastlines and ice sheets.
 
 ### Carrier `extent` is sparse; the resolver buffers centroids by carrier type
 

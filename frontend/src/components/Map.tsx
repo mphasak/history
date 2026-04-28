@@ -35,6 +35,11 @@ interface MapInstanceProps {
   carriers: CarrierView[]
   observations?: TraitObservationView[]
   paleoFeatures?: PaleoFeature[]
+  shelfGeojson?: GeoJSON.FeatureCollection | null
+  /** When true, render the continental-shelf polygon as exposed land. */
+  shelfVisible?: boolean
+  /** Optional GeoJSON of paleo-coastlines from GPlates for deep time. */
+  paleoCoastlines?: GeoJSON.FeatureCollection | null
   perspectiveId: string
   diffCarrierIds?: Set<string>
   onCarrierClick: (carrierId: string) => void
@@ -47,6 +52,9 @@ function useMapInstance({
   carriers,
   observations,
   paleoFeatures,
+  shelfGeojson,
+  shelfVisible,
+  paleoCoastlines,
   diffCarrierIds,
   onCarrierClick,
   onMapClick,
@@ -77,6 +85,64 @@ function useMapInstance({
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     map.on('load', () => {
+      // Deep-time paleo coastlines (from GPlates) — bottom-most paleo layer.
+      // Renders only when in deep-time year range.
+      map.addSource('paleo-coastlines', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+
+      map.addLayer({
+        id: 'paleo-coastlines-fill',
+        type: 'fill',
+        source: 'paleo-coastlines',
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': '#d6c79a', // sandy/exposed land
+          'fill-opacity': 0.55,
+        },
+      })
+
+      map.addLayer({
+        id: 'paleo-coastlines-outline',
+        type: 'line',
+        source: 'paleo-coastlines',
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': '#7c6a3f',
+          'line-width': 0.6,
+        },
+      })
+
+      // Continental-shelf overlay — exposed during glacial low-stands.
+      map.addSource('continental-shelf', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+
+      map.addLayer({
+        id: 'continental-shelf-fill',
+        type: 'fill',
+        source: 'continental-shelf',
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': '#c2b280', // sandy
+          'fill-opacity': 0.5,
+        },
+      })
+
+      map.addLayer({
+        id: 'continental-shelf-outline',
+        type: 'line',
+        source: 'continental-shelf',
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': '#8b7355',
+          'line-width': 0.4,
+          'line-opacity': 0.8,
+        },
+      })
+
       // Paleo features (land bridges, ice sheets) — rendered BELOW everything
       // else so carriers and observations remain on top.
       map.addSource('paleo-features', {
@@ -329,118 +395,181 @@ function useMapInstance({
   // Update carrier data
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map) return
 
-    const source = map.getSource('carriers') as maplibregl.GeoJSONSource | undefined
-    if (!source) return
+    const apply = () => {
+      const source = map.getSource('carriers') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
 
-    const features: GeoJSON.Feature[] = carriers
-      .filter((c) => c.centroid)
-      .map((c) => ({
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [c.centroid!.lon, c.centroid!.lat],
-        },
-        properties: {
-          id: c.id,
-          display_name: c.display_name,
-          type: c.type,
-          disagreed: diffCarrierIds?.has(c.id) ?? false,
-          has_endorsement: !!c.endorsement,
-          endorsement_stance: c.endorsement?.stance ?? null,
-        },
-      }))
+      const features: GeoJSON.Feature[] = carriers
+        .filter((c) => c.centroid)
+        .map((c) => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [c.centroid!.lon, c.centroid!.lat],
+          },
+          properties: {
+            id: c.id,
+            display_name: c.display_name,
+            type: c.type,
+            disagreed: diffCarrierIds?.has(c.id) ?? false,
+            has_endorsement: !!c.endorsement,
+            endorsement_stance: c.endorsement?.stance ?? null,
+          },
+        }))
 
-    source.setData({ type: 'FeatureCollection', features })
+      source.setData({ type: 'FeatureCollection', features })
+    }
+
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
   }, [carriers, diffCarrierIds])
 
   // Update carrier-extents source (fill mode polygons)
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
-    const source = map.getSource('carrier-extents') as maplibregl.GeoJSONSource | undefined
-    if (!source) return
+    if (!map) return
+    const apply = () => {
+      const source = map.getSource('carrier-extents') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
 
-    const features: GeoJSON.Feature[] = []
-    for (const c of carriers) {
-      if (!c.extent_geojson) continue
-      try {
-        const geom = JSON.parse(c.extent_geojson) as GeoJSON.Geometry
-        features.push({
-          type: 'Feature',
-          geometry: geom,
-          properties: {
-            id: c.id,
-            display_name: c.display_name,
-            type: c.type,
-            extent_is_real: !!c.extent_is_real,
-            disagreed: diffCarrierIds?.has(c.id) ?? false,
-          },
-        })
-      } catch {
-        // skip malformed geometry
+      const features: GeoJSON.Feature[] = []
+      for (const c of carriers) {
+        if (!c.extent_geojson) continue
+        try {
+          const geom = JSON.parse(c.extent_geojson) as GeoJSON.Geometry
+          features.push({
+            type: 'Feature',
+            geometry: geom,
+            properties: {
+              id: c.id,
+              display_name: c.display_name,
+              type: c.type,
+              extent_is_real: !!c.extent_is_real,
+              disagreed: diffCarrierIds?.has(c.id) ?? false,
+            },
+          })
+        } catch {
+          // skip malformed geometry
+        }
       }
+      source.setData({ type: 'FeatureCollection', features })
     }
-    source.setData({ type: 'FeatureCollection', features })
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
   }, [carriers, diffCarrierIds])
 
   // Update observations source (pointwise mode)
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
-    const source = map.getSource('observations') as maplibregl.GeoJSONSource | undefined
-    if (!source) return
+    if (!map) return
+    const apply = () => {
+      const source = map.getSource('observations') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
 
-    const features: GeoJSON.Feature[] = (observations ?? [])
-      .filter((o) => o.location)
-      .map((o) => ({
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [o.location!.lon, o.location!.lat],
-        },
-        properties: {
-          id: o.id,
-          domain: o.domain,
-          color: DOMAIN_COLORS[o.domain] ?? DOMAIN_COLORS.other,
-          sample_label: o.sample_label,
-          trait_id: o.trait_id,
-          trait_display_name: o.trait_display_name,
-          fraction: o.fraction,
-          method: o.method,
-        },
-      }))
-    source.setData({ type: 'FeatureCollection', features })
+      const features: GeoJSON.Feature[] = (observations ?? [])
+        .filter((o) => o.location)
+        .map((o) => ({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: [o.location!.lon, o.location!.lat],
+          },
+          properties: {
+            id: o.id,
+            domain: o.domain,
+            color: DOMAIN_COLORS[o.domain] ?? DOMAIN_COLORS.other,
+            sample_label: o.sample_label,
+            trait_id: o.trait_id,
+            trait_display_name: o.trait_display_name,
+            fraction: o.fraction,
+            method: o.method,
+          },
+        }))
+      source.setData({ type: 'FeatureCollection', features })
+    }
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
   }, [observations])
+
+  // Update continental-shelf source (loaded once per session)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !shelfGeojson) return
+    const apply = () => {
+      const source = map.getSource('continental-shelf') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
+      source.setData(shelfGeojson)
+    }
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
+  }, [shelfGeojson])
+
+  // Toggle continental-shelf visibility
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const v = shelfVisible ? 'visible' : 'none'
+      for (const id of ['continental-shelf-fill', 'continental-shelf-outline']) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v)
+      }
+    }
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
+  }, [shelfVisible])
+
+  // Update paleo-coastlines (GPlates) source + visibility
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const source = map.getSource('paleo-coastlines') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
+      const fc = paleoCoastlines ?? { type: 'FeatureCollection' as const, features: [] }
+      source.setData(fc)
+      const has = (paleoCoastlines?.features?.length ?? 0) > 0
+      const v = has ? 'visible' : 'none'
+      for (const id of ['paleo-coastlines-fill', 'paleo-coastlines-outline']) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v)
+      }
+    }
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
+  }, [paleoCoastlines])
 
   // Update paleo-features source
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
-    const source = map.getSource('paleo-features') as maplibregl.GeoJSONSource | undefined
-    if (!source) return
+    if (!map) return
+    const apply = () => {
+      const source = map.getSource('paleo-features') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
 
-    const features: GeoJSON.Feature[] = []
-    for (const f of paleoFeatures ?? []) {
-      if (!f.geometry_geojson) continue
-      try {
-        const geom = JSON.parse(f.geometry_geojson) as GeoJSON.Geometry
-        features.push({
-          type: 'Feature',
-          geometry: geom,
-          properties: {
-            id: f.id,
-            type: f.type,
-            display_name: f.display_name,
-            as_of_year: f.as_of_year,
-          },
-        })
-      } catch {
-        // skip malformed geometry
+      const features: GeoJSON.Feature[] = []
+      for (const f of paleoFeatures ?? []) {
+        if (!f.geometry_geojson) continue
+        try {
+          const geom = JSON.parse(f.geometry_geojson) as GeoJSON.Geometry
+          features.push({
+            type: 'Feature',
+            geometry: geom,
+            properties: {
+              id: f.id,
+              type: f.type,
+              display_name: f.display_name,
+              as_of_year: f.as_of_year,
+            },
+          })
+        } catch {
+          // skip malformed geometry
+        }
       }
+      source.setData({ type: 'FeatureCollection', features })
     }
-    source.setData({ type: 'FeatureCollection', features })
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
   }, [paleoFeatures])
 
   // Toggle layer visibility based on viz mode
@@ -465,6 +594,9 @@ function SingleMap({
   carriers,
   observations,
   paleoFeatures,
+  shelfGeojson,
+  shelfVisible,
+  paleoCoastlines,
   perspectiveId,
   onCarrierClick,
   onMapClick,
@@ -472,6 +604,9 @@ function SingleMap({
   carriers: CarrierView[]
   observations: TraitObservationView[]
   paleoFeatures: PaleoFeature[]
+  shelfGeojson: GeoJSON.FeatureCollection | null
+  shelfVisible: boolean
+  paleoCoastlines: GeoJSON.FeatureCollection | null
   perspectiveId: string
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -482,6 +617,9 @@ function SingleMap({
     carriers,
     observations,
     paleoFeatures,
+    shelfGeojson,
+    shelfVisible,
+    paleoCoastlines,
     perspectiveId,
     onCarrierClick,
     onMapClick,
@@ -494,9 +632,25 @@ interface MapProps {
   worldData: WorldResponse | null
   loading: boolean
   paleoFeatures?: PaleoFeature[]
+  shelfGeojson?: GeoJSON.FeatureCollection | null
+  /** Sea level in meters relative to present. Used to gate the shelf overlay. */
+  seaLevelMeters?: number | null
+  /** Deep-time paleo coastlines from GPlates. */
+  paleoCoastlines?: GeoJSON.FeatureCollection | null
 }
 
-export function WorldMap({ worldData, loading, paleoFeatures = [] }: MapProps) {
+const SHELF_VISIBILITY_THRESHOLD_M = -50
+
+export function WorldMap({
+  worldData,
+  loading,
+  paleoFeatures = [],
+  shelfGeojson = null,
+  seaLevelMeters = null,
+  paleoCoastlines = null,
+}: MapProps) {
+  const shelfVisible =
+    seaLevelMeters != null && seaLevelMeters <= SHELF_VISIBILITY_THRESHOLD_M
   const renderMode = useStore((s) => s.renderMode)
   const activePerspectives = useStore((s) => s.activePerspectives)
   const setSelectedCarrierId = useStore((s) => s.setSelectedCarrierId)
@@ -535,6 +689,9 @@ export function WorldMap({ worldData, loading, paleoFeatures = [] }: MapProps) {
         worldData={worldData}
         perspIds={perspIds}
         paleoFeatures={paleoFeatures}
+        shelfGeojson={shelfGeojson}
+        shelfVisible={shelfVisible}
+        paleoCoastlines={paleoCoastlines}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
       />
@@ -553,6 +710,9 @@ export function WorldMap({ worldData, loading, paleoFeatures = [] }: MapProps) {
           carriers={uniqueCarriers}
           observations={worldData.observations ?? []}
           paleoFeatures={paleoFeatures}
+          shelfGeojson={shelfGeojson}
+          shelfVisible={shelfVisible}
+          paleoCoastlines={paleoCoastlines}
           diffIds={diffIds}
           onCarrierClick={handleCarrierClick}
           onMapClick={handleMapClick}
@@ -571,6 +731,9 @@ export function WorldMap({ worldData, loading, paleoFeatures = [] }: MapProps) {
         carriers={carriers}
         observations={observations}
         paleoFeatures={paleoFeatures}
+        shelfGeojson={shelfGeojson}
+        shelfVisible={shelfVisible}
+        paleoCoastlines={paleoCoastlines}
         perspectiveId={pid}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
@@ -583,12 +746,18 @@ function SideBySideMap({
   worldData,
   perspIds,
   paleoFeatures,
+  shelfGeojson,
+  shelfVisible,
+  paleoCoastlines,
   onCarrierClick,
   onMapClick,
 }: {
   worldData: WorldResponse
   perspIds: string[]
   paleoFeatures: PaleoFeature[]
+  shelfGeojson: GeoJSON.FeatureCollection | null
+  shelfVisible: boolean
+  paleoCoastlines: GeoJSON.FeatureCollection | null
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
 }) {
@@ -605,6 +774,9 @@ function SideBySideMap({
     carriers: worldData.perspectives[leftPid]?.carriers ?? [],
     observations,
     paleoFeatures,
+    shelfGeojson,
+    shelfVisible,
+    paleoCoastlines,
     perspectiveId: leftPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -617,6 +789,9 @@ function SideBySideMap({
     carriers: worldData.perspectives[rightPid]?.carriers ?? [],
     observations,
     paleoFeatures,
+    shelfGeojson,
+    shelfVisible,
+    paleoCoastlines,
     perspectiveId: rightPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -652,6 +827,9 @@ function DiffMapUpdater({
   carriers,
   observations,
   paleoFeatures,
+  shelfGeojson,
+  shelfVisible,
+  paleoCoastlines,
   diffIds,
   onCarrierClick,
   onMapClick,
@@ -659,6 +837,9 @@ function DiffMapUpdater({
   carriers: CarrierView[]
   observations: TraitObservationView[]
   paleoFeatures: PaleoFeature[]
+  shelfGeojson: GeoJSON.FeatureCollection | null
+  shelfVisible: boolean
+  paleoCoastlines: GeoJSON.FeatureCollection | null
   diffIds: Set<string>
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -668,6 +849,9 @@ function DiffMapUpdater({
     carriers,
     observations,
     paleoFeatures,
+    shelfGeojson,
+    shelfVisible,
+    paleoCoastlines,
     perspectiveId: 'diff',
     diffCarrierIds: diffIds,
     onCarrierClick,

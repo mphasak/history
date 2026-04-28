@@ -158,24 +158,36 @@ async def resolve_world(
     )
     carriers: list[dict] = [dict(r) async for r in carrier_rows]
 
-    # Fetch trait mix for each carrier (closest snapshot at or before year)
-    for c in carriers:
+    # Batch-fetch trait mixes for all carriers in one query (avoids N+1).
+    # For each carrier, select only the most recent snapshot at or before year.
+    carrier_ids = [c["id"] for c in carriers]
+    trait_mix_by_carrier: dict[str, list[dict]] = {cid: [] for cid in carrier_ids}
+    if carrier_ids:
         mix_rows = await conn.execute(
             """
-            SELECT ctm.trait_id, t.display_name, ctm.domain,
-                   ctm.fraction, ctm.stderr, ctm.as_of_year
-            FROM carrier_trait_mix ctm
-            JOIN trait t ON t.id = ctm.trait_id
-            WHERE ctm.carrier_id = %(carrier_id)s
-              AND ctm.as_of_year = (
-                SELECT MAX(as_of_year) FROM carrier_trait_mix
-                WHERE carrier_id = %(carrier_id)s AND as_of_year <= %(year)s
-              )
-            ORDER BY ctm.domain, ctm.trait_id
+            WITH ranked AS (
+                SELECT ctm.carrier_id, ctm.trait_id, t.display_name, ctm.domain,
+                       ctm.fraction, ctm.stderr, ctm.as_of_year,
+                       RANK() OVER (
+                           PARTITION BY ctm.carrier_id
+                           ORDER BY ctm.as_of_year DESC
+                       ) AS rn
+                FROM carrier_trait_mix ctm
+                JOIN trait t ON t.id = ctm.trait_id
+                WHERE ctm.carrier_id = ANY(%(carrier_ids)s)
+                  AND ctm.as_of_year <= %(year)s
+            )
+            SELECT carrier_id, trait_id, display_name, domain, fraction, stderr, as_of_year
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY carrier_id, domain, trait_id
             """,
-            {"carrier_id": c["id"], "year": year},
+            {"carrier_ids": carrier_ids, "year": year},
         )
-        c["trait_mix"] = [dict(r) async for r in mix_rows]
+        async for r in mix_rows:
+            trait_mix_by_carrier[r["carrier_id"]].append(dict(r))
+    for c in carriers:
+        c["trait_mix"] = trait_mix_by_carrier[c["id"]]
 
     # Fetch trait_observation rows in bbox + year window (Perspective-agnostic)
     if west <= east:
@@ -376,24 +388,35 @@ async def resolve_world_at_point(
         r["distance_km"] = dist_km
         carriers.append(r)
 
-    # Hydrate trait mixes for each carrier
-    for c in carriers:
+    # Batch-fetch trait mixes for all carriers in one query (avoids N+1).
+    carrier_ids = [c["id"] for c in carriers]
+    trait_mix_by_carrier: dict[str, list[dict]] = {cid: [] for cid in carrier_ids}
+    if carrier_ids:
         mix_rows = await conn.execute(
             """
-            SELECT ctm.trait_id, t.display_name, ctm.domain,
-                   ctm.fraction, ctm.stderr, ctm.as_of_year
-            FROM carrier_trait_mix ctm
-            JOIN trait t ON t.id = ctm.trait_id
-            WHERE ctm.carrier_id = %(carrier_id)s
-              AND ctm.as_of_year = (
-                SELECT MAX(as_of_year) FROM carrier_trait_mix
-                WHERE carrier_id = %(carrier_id)s AND as_of_year <= %(year)s
-              )
-            ORDER BY ctm.domain, ctm.trait_id
+            WITH ranked AS (
+                SELECT ctm.carrier_id, ctm.trait_id, t.display_name, ctm.domain,
+                       ctm.fraction, ctm.stderr, ctm.as_of_year,
+                       RANK() OVER (
+                           PARTITION BY ctm.carrier_id
+                           ORDER BY ctm.as_of_year DESC
+                       ) AS rn
+                FROM carrier_trait_mix ctm
+                JOIN trait t ON t.id = ctm.trait_id
+                WHERE ctm.carrier_id = ANY(%(carrier_ids)s)
+                  AND ctm.as_of_year <= %(year)s
+            )
+            SELECT carrier_id, trait_id, display_name, domain, fraction, stderr, as_of_year
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY carrier_id, domain, trait_id
             """,
-            {"carrier_id": c["id"], "year": year},
+            {"carrier_ids": carrier_ids, "year": year},
         )
-        c["trait_mix"] = [dict(r) async for r in mix_rows]
+        async for r in mix_rows:
+            trait_mix_by_carrier[r["carrier_id"]].append(dict(r))
+    for c in carriers:
+        c["trait_mix"] = trait_mix_by_carrier[c["id"]]
 
     all_endorsements = await _fetch_endorsements(conn, perspective_ids)
 

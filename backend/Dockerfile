@@ -5,6 +5,7 @@ RUN pip install --no-cache-dir \
     "uvicorn[standard]>=0.29" \
     "psycopg[binary]>=3.1" \
     "psycopg-pool>=3.2" \
-    "pydantic>=2.7"
+    "pydantic>=2.7" \
+    "httpx>=0.27"
 COPY src ./src
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

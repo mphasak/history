@@ -1,8 +1,12 @@
 -- 003_seed_paleo_features.sql
 --
--- Hand-authored paleo features (land bridges, ice sheets) for the period
--- ~20,000 BCE to early Holocene. Coordinates are coarse; this is dev-grade
--- cartography to make scrubbing through deglaciation visible on the map.
+-- Hand-authored paleo features (ice sheets) for the deglaciation period.
+-- Land bridges (Beringia, Doggerland, Sundaland, Sahul) are NOT seeded here
+-- anymore — they're rendered client-side from a continental-shelf polygon
+-- gated by paleoclimate_state.sea_level_meters (see frontend/public/paleo/).
+--
+-- Coordinates are coarse; this is dev-grade cartography to make scrubbing
+-- through deglaciation visible on the map.
 --
 -- A snapshot with NULL geometry signals "feature has disappeared as of this year"
 -- — the API returns the latest snapshot at or before the queried year, so a NULL
@@ -16,19 +20,39 @@
 -- ---------------------------------------------------------------------------
 
 INSERT INTO physical_feature (id, type, display_name, description) VALUES
-  ('PF_PALEO_BERINGIA',          'land_bridge', 'Beringia (Bering land bridge)',
-   'Subaerial land connection between NE Asia and NW North America during glacial low-stands.'),
-  ('PF_PALEO_DOGGERLAND',        'land_bridge', 'Doggerland',
-   'Lowland connecting Britain to continental Europe across the southern North Sea.'),
-  ('PF_PALEO_SUNDALAND',         'land_bridge', 'Sundaland',
-   'Exposed Sunda Shelf joining peninsular SE Asia with Sumatra, Java, and Borneo.'),
-  ('PF_PALEO_SAHUL',             'land_bridge', 'Sahul',
-   'Combined Australia–New Guinea landmass exposed during low sea levels.'),
   ('PF_PALEO_LAURENTIDE_ICE',    'ice_sheet',   'Laurentide Ice Sheet',
    'Continental ice sheet covering most of Canada and the northern US during the LGM.'),
   ('PF_PALEO_FENNOSCANDIAN_ICE', 'ice_sheet',   'Fennoscandian Ice Sheet',
    'Continental ice sheet over Scandinavia, the UK, and parts of northern Europe.')
 ON CONFLICT (id) DO NOTHING;
+
+-- Clean up any rectangular land-bridge rows from earlier seed runs.
+DELETE FROM physical_feature
+WHERE id IN ('PF_PALEO_BERINGIA','PF_PALEO_DOGGERLAND','PF_PALEO_SUNDALAND','PF_PALEO_SAHUL');
+
+-- ---------------------------------------------------------------------------
+-- paleoclimate_state keyframes (sea level + temp anomaly)
+-- ---------------------------------------------------------------------------
+-- Coarse global sea-level keyframes spanning the sapiens timeframe and a bit
+-- earlier. Frontend uses sea_level_meters to gate the continental-shelf
+-- overlay (shelf shows when sea level <= ~-50 m). Values are approximate;
+-- finer-grained reconstructions can replace these per-region later.
+
+DELETE FROM paleoclimate_state WHERE id LIKE 'PCS_PALEO_%';
+
+INSERT INTO paleoclimate_state (id, year, scope, sea_level_meters, temp_anomaly_c, ice_volume_relative) VALUES
+  ('PCS_PALEO_PRESENT',          0,        'global',    0.0, 0.0,  'low'),
+  ('PCS_PALEO_MID_HOLOCENE',    -6000,     'global',    1.0, 0.5,  'low'),
+  ('PCS_PALEO_EARLY_HOLOCENE', -10000,     'global',  -50.0,-1.0,  'low_med'),
+  ('PCS_PALEO_YOUNGER_DRYAS',  -12000,     'global',  -65.0,-3.0,  'med'),
+  ('PCS_PALEO_LGM',            -20000,     'global', -120.0,-5.0,  'high'),
+  ('PCS_PALEO_LATE_GLACIAL_30K',-30000,    'global', -100.0,-4.0,  'med_high'),
+  ('PCS_PALEO_MIS3',           -50000,     'global',  -80.0,-3.0,  'med'),
+  ('PCS_PALEO_MIS4',           -70000,     'global',  -75.0,-3.0,  'med'),
+  ('PCS_PALEO_EEMIAN',        -125000,     'global',    6.0, 1.5,  'low'),
+  ('PCS_PALEO_MIS6',          -150000,     'global', -100.0,-4.0,  'high'),
+  ('PCS_PALEO_MIS7',          -200000,     'global',  -65.0,-2.5,  'med'),
+  ('PCS_PALEO_SAPIENS_DAWN',  -300000,     'global', -100.0,-3.0,  'med_high');
 
 -- ---------------------------------------------------------------------------
 -- physical_feature_snapshot rows
@@ -41,40 +65,6 @@ WHERE feature_id IN (
   'PF_PALEO_BERINGIA','PF_PALEO_DOGGERLAND','PF_PALEO_SUNDALAND',
   'PF_PALEO_SAHUL','PF_PALEO_LAURENTIDE_ICE','PF_PALEO_FENNOSCANDIAN_ICE'
 );
-
--- Beringia: full at LGM, narrowing by -12000, submerged by -10000
-INSERT INTO physical_feature_snapshot (feature_id, as_of_year, geometry, centroid) VALUES
-  ('PF_PALEO_BERINGIA', -20000,
-   ST_GeogFromText('SRID=4326;MULTIPOLYGON(((158 55, 180 55, 180 72, 158 72, 158 55)),((-180 55, -160 55, -160 72, -180 72, -180 55)))'),
-   ST_GeogFromText('SRID=4326;POINT(180 65)')),
-  ('PF_PALEO_BERINGIA', -12000,
-   ST_GeogFromText('SRID=4326;MULTIPOLYGON(((168 60, 180 60, 180 70, 168 70, 168 60)),((-180 60, -168 60, -168 70, -180 70, -180 60)))'),
-   ST_GeogFromText('SRID=4326;POINT(180 65)')),
-  ('PF_PALEO_BERINGIA', -10000, NULL, NULL);
-
--- Doggerland: present at -12000, retreating by -8000, gone by -6500
-INSERT INTO physical_feature_snapshot (feature_id, as_of_year, geometry, centroid) VALUES
-  ('PF_PALEO_DOGGERLAND', -12000,
-   ST_GeogFromText('SRID=4326;MULTIPOLYGON(((-2 51, 8 51, 8 56, -2 56, -2 51)))'),
-   ST_GeogFromText('SRID=4326;POINT(3 53.5)')),
-  ('PF_PALEO_DOGGERLAND', -8000,
-   ST_GeogFromText('SRID=4326;MULTIPOLYGON(((1 53, 6 53, 6 55, 1 55, 1 53)))'),
-   ST_GeogFromText('SRID=4326;POINT(3.5 54)')),
-  ('PF_PALEO_DOGGERLAND', -6500, NULL, NULL);
-
--- Sundaland: full at LGM, gone by -10000
-INSERT INTO physical_feature_snapshot (feature_id, as_of_year, geometry, centroid) VALUES
-  ('PF_PALEO_SUNDALAND', -20000,
-   ST_GeogFromText('SRID=4326;MULTIPOLYGON(((100 -5, 120 -5, 120 12, 100 12, 100 -5)))'),
-   ST_GeogFromText('SRID=4326;POINT(110 3)')),
-  ('PF_PALEO_SUNDALAND', -10000, NULL, NULL);
-
--- Sahul: full at LGM, separated by -8000
-INSERT INTO physical_feature_snapshot (feature_id, as_of_year, geometry, centroid) VALUES
-  ('PF_PALEO_SAHUL', -20000,
-   ST_GeogFromText('SRID=4326;MULTIPOLYGON(((130 -12, 145 -12, 145 -3, 130 -3, 130 -12)))'),
-   ST_GeogFromText('SRID=4326;POINT(137 -7)')),
-  ('PF_PALEO_SAHUL', -8000, NULL, NULL);
 
 -- Laurentide Ice Sheet: max LGM, smaller at -12000, residual at -8000, gone by -6000
 INSERT INTO physical_feature_snapshot (feature_id, as_of_year, geometry, centroid) VALUES

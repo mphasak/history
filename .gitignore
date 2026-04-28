@@ -44,3 +44,7 @@ Thumbs.db
 !template_v0.3.xlsx
 *.csv
 *.tmp
+
+
+# Claude Code local settings
+.claude/

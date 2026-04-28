@@ -22,6 +22,10 @@ interface LegendProps {
   worldData: WorldResponse | null
   paleoFeatures?: PaleoFeature[]
   seaLevelMeters?: number | null
+  /** True when the continental-shelf overlay is currently rendered. */
+  shelfVisible?: boolean
+  /** True when GPlates deep-time coastlines are currently rendered. */
+  deepTimeActive?: boolean
 }
 
 const PALEO_TYPE_COLORS: Record<string, string> = {
@@ -32,7 +36,13 @@ const PALEO_TYPE_COLORS: Record<string, string> = {
   sea: '#1e40af',
 }
 
-export function Legend({ worldData, paleoFeatures = [], seaLevelMeters }: LegendProps) {
+export function Legend({
+  worldData,
+  paleoFeatures = [],
+  seaLevelMeters,
+  shelfVisible = false,
+  deepTimeActive = false,
+}: LegendProps) {
   const vizMode = useStore((s) => s.vizMode)
   const presentPaleoTypes = new Set(paleoFeatures.filter((p) => p.geometry_geojson).map((p) => p.type))
 
@@ -106,7 +116,7 @@ export function Legend({ worldData, paleoFeatures = [], seaLevelMeters }: Legend
         </div>
       )}
 
-      {presentPaleoTypes.size > 0 && (
+      {(presentPaleoTypes.size > 0 || shelfVisible || deepTimeActive || seaLevelMeters != null) && (
         <div className="mt-2 pt-2 border-t border-gray-700">
           <div className="text-gray-500 uppercase tracking-wide text-[10px] mb-1">
             Paleogeography
@@ -118,6 +128,24 @@ export function Legend({ worldData, paleoFeatures = [], seaLevelMeters }: Legend
             )}
           </div>
           <ul className="space-y-1">
+            {deepTimeActive && (
+              <li className="flex items-center gap-2">
+                <span
+                  className="inline-block w-3 h-3 border border-gray-700"
+                  style={{ background: '#d6c79a', opacity: 0.7 }}
+                />
+                <span className="text-gray-300">paleo coastline (GPlates)</span>
+              </li>
+            )}
+            {shelfVisible && (
+              <li className="flex items-center gap-2">
+                <span
+                  className="inline-block w-3 h-3 border border-gray-700"
+                  style={{ background: '#c2b280', opacity: 0.7 }}
+                />
+                <span className="text-gray-300">exposed continental shelf</span>
+              </li>
+            )}
             {Array.from(presentPaleoTypes).map((t) => (
               <li key={t} className="flex items-center gap-2">
                 <span
