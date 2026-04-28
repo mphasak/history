@@ -222,6 +222,47 @@ async def test_resolve_carrier_claims_returns_steppe_migration(aconn):
 
 
 @pytest.mark.asyncio
+async def test_resolve_world_uses_carrier_extent_snapshot_when_present(aconn):
+    """
+    Romans have authored extent snapshots in 009 — at year=130 the resolver
+    should pick the snapshot at-or-before that year (year-0 Augustan, since
+    117 snapshot kicks in only from year>=117, and 130 picks the 117 one),
+    not the centroid-radius buffer fallback.
+    """
+    result = await resolve_world(
+        aconn, 130, [-30.0, -30.0, 90.0, 80.0], [PERSP_REICH]
+    )
+    rome = next(
+        (c for c in result[PERSP_REICH]["carriers"] if c["id"] == "CARR_HIST_ROMAN"),
+        None,
+    )
+    if rome is None:
+        pytest.skip("CARR_HIST_ROMAN missing — historical-carriers seed not applied")
+    if not rome.get("extent_geojson"):
+        pytest.skip("No extent_geojson on Romans — territory snapshots not applied")
+    assert rome["extent_is_real"] is True, (
+        "Expected extent_is_real=True (snapshot wins over buffer fallback)"
+    )
+
+    # An empire-scale extent should span roughly Iberia → Levant. The
+    # buffered fallback (~600 km radius around 12.48,41.89) maxes out near
+    # 18° E, so any longitude past ~25° E is proof the snapshot was used.
+    import json
+    geom = json.loads(rome["extent_geojson"])
+    polys = geom["coordinates"] if geom["type"] == "MultiPolygon" else [geom["coordinates"]]
+    max_lon = max(
+        pt[0]
+        for poly in polys
+        for ring in poly
+        for pt in ring
+    )
+    assert max_lon >= 25, (
+        f"Roman extent's eastern edge ({max_lon:.1f}°E) is too small to be a "
+        "snapshot — looks like the buffered fallback won."
+    )
+
+
+@pytest.mark.asyncio
 async def test_resolve_carrier_claims_surfaces_provenance_for_romans(aconn):
     """
     The 006 ancestry seed adds an [AUTO-PROVENANCE] claim per historical

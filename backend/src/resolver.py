@@ -131,26 +131,44 @@ async def resolve_world(
         f"WHEN '{t}' THEN {r}" for t, r in _CARRIER_DEFAULT_RADIUS_M.items()
     ) + " ELSE 500000 END"
 
+    # Extent priority (most → least specific):
+    #   1) carrier_extent_snapshot row at or before `year`
+    #      (latest such snapshot wins; lets a single carrier evolve over time)
+    #   2) carrier.extent (a fixed authored polygon, e.g. NW South Asia carrier)
+    #   3) ST_Buffer(centroid, radius_for_carrier_type)
+    # `extent_is_real` flips on for (1) and (2) so the UI can solid-outline
+    # them, and stays off for the buffered fallback (rendered dashed).
+    #
+    # The LATERAL subquery picks the most recent snapshot per carrier at the
+    # current year — equivalent to an `ORDER BY as_of_year DESC LIMIT 1` join.
     carrier_rows = await conn.execute(
         f"""
-        SELECT id, display_name, type, date_min_year, date_max_year,
-               ST_Y(centroid::geometry) AS lat,
-               ST_X(centroid::geometry) AS lon,
-               archaeological_culture, linguistic_affiliation,
+        SELECT c.id, c.display_name, c.type, c.date_min_year, c.date_max_year,
+               ST_Y(c.centroid::geometry) AS lat,
+               ST_X(c.centroid::geometry) AS lon,
+               c.archaeological_culture, c.linguistic_affiliation,
                ST_AsGeoJSON(
                  COALESCE(
-                   extent::geometry,
-                   ST_Buffer(centroid, {radius_case})::geometry
+                   snap.geometry::geometry,
+                   c.extent::geometry,
+                   ST_Buffer(c.centroid, {radius_case})::geometry
                  )
                ) AS extent_geojson,
-               (extent IS NOT NULL) AS extent_is_real
-        FROM carrier
-        WHERE date_min_year <= %(year)s AND date_max_year >= %(year)s
+               (snap.geometry IS NOT NULL OR c.extent IS NOT NULL) AS extent_is_real
+        FROM carrier c
+        LEFT JOIN LATERAL (
+          SELECT geometry
+          FROM carrier_extent_snapshot
+          WHERE carrier_id = c.id AND as_of_year <= %(year)s
+          ORDER BY as_of_year DESC
+          LIMIT 1
+        ) snap ON TRUE
+        WHERE c.date_min_year <= %(year)s AND c.date_max_year >= %(year)s
           AND (
-            centroid IS NULL
+            c.centroid IS NULL
             OR (
-              ST_Y(centroid::geometry) BETWEEN %(south)s AND %(north)s
-              AND {lon_clause}
+              ST_Y(c.centroid::geometry) BETWEEN %(south)s AND %(north)s
+              AND {lon_clause.replace("centroid", "c.centroid")}
             )
           )
         """,

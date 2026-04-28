@@ -165,13 +165,25 @@ The resolver's date-window queries (`date_min_year <= y AND date_max_year >= y`)
 work unchanged — there's just no carrier seed data older than the spreadsheet's
 oldest entry, so deep-time scrubs show only paleo coastlines and ice sheets.
 
-### Carrier `extent` is sparse; the resolver buffers centroids by carrier type
+### Carrier extent has a three-tier resolution priority
 
-The seed spreadsheet only populates `carrier.centroid`. `resolve_world` falls
-back to `ST_Buffer(centroid, RADIUS)` where RADIUS comes from
-`_CARRIER_DEFAULT_RADIUS_M` keyed by `carrier.type` — that way fill-mode
-rendering always has a polygon. The carrier view exposes `extent_is_real` so
-the UI can dash-outline buffered extents.
+Fill-mode polygons resolve in this order, most → least specific:
+
+1. **`carrier_extent_snapshot`** (the new 009 seed). The resolver picks the
+   latest snapshot whose `as_of_year <= query_year` for each carrier, via a
+   `LATERAL` join. This is what makes the Roman Empire actually grow and
+   shrink as the slider moves through Republic → Augustan → Trajanic peak
+   → post-split contraction.
+2. **`carrier.extent`** (a fixed authored polygon — used only for the NW
+   South Asia carrier in the spreadsheet seed; null for everyone else).
+3. **`ST_Buffer(centroid, RADIUS)`** with RADIUS keyed by `carrier.type`
+   via `_CARRIER_DEFAULT_RADIUS_M`. The fallback for carriers without a
+   snapshot or fixed extent.
+
+`extent_is_real` is true for (1) and (2) and false for (3). The UI uses
+that flag to draw solid outlines for authored extents and dashed outlines
+for buffered fallbacks (rendered via two layers since MapLibre rejects
+data-driven `line-dasharray`).
 
 ### `paleo-seed` compose service runs every `docker compose up`
 
@@ -298,6 +310,7 @@ the lifetime of the map, so source existence is the right gate.
 | `db/006_seed_historical_carrier_ancestry.sql` | Ancestry mixes + cited claims (`[AUTO-PROVENANCE]`) for the carriers from 005 |
 | `db/007_carrier_threats.sql` | `carrier_threat` table + `threat_type` enum + 94 seeded threats with year windows and cited claims (`[AUTO-THREAT]`) |
 | `db/008_historical_places.sql` | `historical_place` table + 64 era-appropriate city/region labels keyed by `[date_min_year, date_max_year]` |
+| `db/009_carrier_territory_snapshots.sql` | `carrier_extent_snapshot` table + ~36 territorial polygons that the resolver picks per-year via `LATERAL` lookup |
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
 | `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |

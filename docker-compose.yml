@@ -93,6 +93,28 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Territory snapshots: per-year extent polygons for major carriers
+  # (Roman Empire growth/peak/decline, Mongol peak, Bay Area counties, etc.).
+  # The resolver prefers the latest snapshot at-or-before the queried year
+  # over the carrier-type buffer fallback, so fill-mode rendering tracks
+  # actual territorial evolution.
+  territory-snapshots-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      carriers-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/009_carrier_territory_snapshots.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Historical places: era-appropriate city/region labels for the
   # "Historical" label mode. Adds the historical_place table additively.
   # Idempotent (DELETE keyed on the HP_* id prefix).
@@ -183,6 +205,8 @@ services:
       carrier-threats-seed:
         condition: service_completed_successfully
       historical-places-seed:
+        condition: service_completed_successfully
+      territory-snapshots-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

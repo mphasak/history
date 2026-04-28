@@ -158,6 +158,15 @@ history-simulator/
       seeded with 64 era-appropriate place labels (Constantinople,
       Tenochtitlan, Lutetia, etc.) with year windows that the map
       uses in "Historical" label mode
+    - `territory-snapshots-seed`
+      (`db/009_carrier_territory_snapshots.sql`) —
+      `carrier_extent_snapshot` table + ~36 polygon snapshots so
+      fill-mode rendering tracks real territorial evolution
+      (Roman Republic → Augustan → Trajanic peak → post-split
+      contraction; Mongol / Achaemenid / Sasanian / Han / Tang
+      peaks; Aztec / Inca / Maya / Khmer / Ottoman / Abbasid /
+      Mali / Aksum / Norse / Vedic / Mughal cores; Bay Area
+      counties for the modern US carriers).
 - Read endpoints with Perspective resolution: `/perspectives`,
   `/world` (with `disagreed_carrier_ids` side-channel), `/world/at`,
   `/carrier/{id}/timeline`, `/carrier/{id}/claims`,
