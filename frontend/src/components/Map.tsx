@@ -19,6 +19,10 @@ export const DOMAIN_COLORS: Record<string, string> = {
 
 const OSM_STYLE: maplibregl.StyleSpecification = {
   version: 8,
+  // Required so symbol layers using `text-field` (e.g. carrier labels) can resolve
+  // glyphs. MapLibre's free demo glyph endpoint covers basic Latin and is
+  // sufficient for carrier display names.
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {
     osm: {
       type: 'raster',
@@ -98,7 +102,9 @@ function useMapInstance({
         source: 'paleo-coastlines',
         layout: { visibility: 'none' },
         paint: {
-          'fill-color': '#d6c79a', // sandy/exposed land
+          // Earthy brown — distinct from the sandy continental-shelf fill so
+          // deep-time GPlates reconstructions don't read as "the same poly."
+          'fill-color': '#8b5e34',
           'fill-opacity': 0.55,
         },
       })
@@ -109,8 +115,9 @@ function useMapInstance({
         source: 'paleo-coastlines',
         layout: { visibility: 'none' },
         paint: {
-          'line-color': '#7c6a3f',
-          'line-width': 0.6,
+          'line-color': '#3a2812',
+          'line-width': 1.4,
+          'line-opacity': 0.9,
         },
       })
 
@@ -212,10 +219,15 @@ function useMapInstance({
         },
       })
 
+      // Outline layers are split in two because MapLibre rejects data-driven
+      // expressions for `line-dasharray`. Authored extents render solid; buffered
+      // (synthetic) extents render dashed. Both styles share the same color
+      // expression, so the disagreement cue still applies in either case.
       map.addLayer({
-        id: 'carrier-extents-outline',
+        id: 'carrier-extents-outline-solid',
         type: 'line',
         source: 'carrier-extents',
+        filter: ['==', ['get', 'extent_is_real'], true],
         layout: { visibility: 'none' },
         paint: {
           'line-color': [
@@ -225,12 +237,24 @@ function useMapInstance({
             '#60a5fa',
           ],
           'line-width': 1.5,
-          'line-dasharray': [
+        },
+      })
+
+      map.addLayer({
+        id: 'carrier-extents-outline-dashed',
+        type: 'line',
+        source: 'carrier-extents',
+        filter: ['!=', ['get', 'extent_is_real'], true],
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': [
             'case',
-            ['get', 'extent_is_real'],
-            ['literal', [1]],
-            ['literal', [3, 2]],
+            ['get', 'disagreed'],
+            '#ef4444',
+            '#60a5fa',
           ],
+          'line-width': 1.5,
+          'line-dasharray': [3, 2],
         },
       })
 
@@ -294,15 +318,22 @@ function useMapInstance({
         source: 'carriers',
         layout: {
           'text-field': ['get', 'display_name'],
+          'text-font': ['Noto Sans Regular'],
           'text-size': 11,
           'text-offset': [0, 1.5],
           'text-anchor': 'top',
+          // Cap label rendering at zoomed-out levels to avoid the world map turning
+          // into a wall of overlapping text — labels appear once you zoom in.
+          'text-allow-overlap': false,
+          'text-optional': true,
+          'text-padding': 4,
         },
         paint: {
           'text-color': '#ffffff',
           'text-halo-color': '#000000',
           'text-halo-width': 1,
         },
+        minzoom: 3,
       })
 
       map.on('click', (e) => {
@@ -327,7 +358,11 @@ function useMapInstance({
       const v = vizModeRef.current
       const fillVis = v === 'fill' ? 'visible' : 'none'
       const pointVis = v === 'pointwise' ? 'visible' : 'none'
-      for (const id of ['carrier-extents-fill', 'carrier-extents-outline']) {
+      for (const id of [
+        'carrier-extents-fill',
+        'carrier-extents-outline-solid',
+        'carrier-extents-outline-dashed',
+      ]) {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', fillVis)
       }
       if (map.getLayer('observations-circle')) {
@@ -422,7 +457,13 @@ function useMapInstance({
       source.setData({ type: 'FeatureCollection', features })
     }
 
-    if (map.isStyleLoaded()) apply()
+    // Gate on source existence rather than `isStyleLoaded()`. The latter flips
+    // back to false transiently while OSM raster tiles fetch, and falling into
+    // the `else` branch registers a `'load'` listener for an event that has
+    // already fired once at init — so the data update would be silently
+    // dropped. Sources, once added during init's `'load'` callback, persist
+    // for the lifetime of the map.
+    if (map.getSource('carriers')) apply()
     else map.once('load', apply)
   }, [carriers, diffCarrierIds])
 
@@ -456,7 +497,7 @@ function useMapInstance({
       }
       source.setData({ type: 'FeatureCollection', features })
     }
-    if (map.isStyleLoaded()) apply()
+    if (map.getSource('carrier-extents')) apply()
     else map.once('load', apply)
   }, [carriers, diffCarrierIds])
 
@@ -489,36 +530,29 @@ function useMapInstance({
         }))
       source.setData({ type: 'FeatureCollection', features })
     }
-    if (map.isStyleLoaded()) apply()
+    if (map.getSource('observations')) apply()
     else map.once('load', apply)
   }, [observations])
 
-  // Update continental-shelf source (loaded once per session)
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !shelfGeojson) return
-    const apply = () => {
-      const source = map.getSource('continental-shelf') as maplibregl.GeoJSONSource | undefined
-      if (!source) return
-      source.setData(shelfGeojson)
-    }
-    if (map.isStyleLoaded()) apply()
-    else map.once('load', apply)
-  }, [shelfGeojson])
-
-  // Toggle continental-shelf visibility
+  // Update continental-shelf source data + visibility together. Combined into
+  // a single effect so the two can never desync (e.g. data set without
+  // visibility flipping back on, leaving an invisible loaded source).
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
     const apply = () => {
+      const source = map.getSource('continental-shelf') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
+      const fc = shelfGeojson ?? { type: 'FeatureCollection' as const, features: [] }
+      source.setData(fc)
       const v = shelfVisible ? 'visible' : 'none'
       for (const id of ['continental-shelf-fill', 'continental-shelf-outline']) {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v)
       }
     }
-    if (map.isStyleLoaded()) apply()
+    if (map.getSource('continental-shelf')) apply()
     else map.once('load', apply)
-  }, [shelfVisible])
+  }, [shelfGeojson, shelfVisible])
 
   // Update paleo-coastlines (GPlates) source + visibility
   useEffect(() => {
@@ -535,7 +569,7 @@ function useMapInstance({
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v)
       }
     }
-    if (map.isStyleLoaded()) apply()
+    if (map.getSource('paleo-coastlines')) apply()
     else map.once('load', apply)
   }, [paleoCoastlines])
 
@@ -568,22 +602,30 @@ function useMapInstance({
       }
       source.setData({ type: 'FeatureCollection', features })
     }
-    if (map.isStyleLoaded()) apply()
+    if (map.getSource('paleo-features')) apply()
     else map.once('load', apply)
   }, [paleoFeatures])
 
   // Toggle layer visibility based on viz mode
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
-    const fillVis = vizMode === 'fill' ? 'visible' : 'none'
-    const pointVis = vizMode === 'pointwise' ? 'visible' : 'none'
-    for (const id of ['carrier-extents-fill', 'carrier-extents-outline']) {
-      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', fillVis)
+    if (!map) return
+    const apply = () => {
+      const fillVis = vizMode === 'fill' ? 'visible' : 'none'
+      const pointVis = vizMode === 'pointwise' ? 'visible' : 'none'
+      for (const id of [
+        'carrier-extents-fill',
+        'carrier-extents-outline-solid',
+        'carrier-extents-outline-dashed',
+      ]) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', fillVis)
+      }
+      if (map.getLayer('observations-circle')) {
+        map.setLayoutProperty('observations-circle', 'visibility', pointVis)
+      }
     }
-    if (map.getLayer('observations-circle')) {
-      map.setLayoutProperty('observations-circle', 'visibility', pointVis)
-    }
+    if (map.getLayer('carrier-extents-fill')) apply()
+    else map.once('load', apply)
   }, [vizMode])
 
   return mapRef
@@ -633,24 +675,21 @@ interface MapProps {
   loading: boolean
   paleoFeatures?: PaleoFeature[]
   shelfGeojson?: GeoJSON.FeatureCollection | null
-  /** Sea level in meters relative to present. Used to gate the shelf overlay. */
+  /** Sea level in meters relative to present. Currently informational; shelf
+   *  visibility is driven by whether shelfGeojson has features. */
   seaLevelMeters?: number | null
   /** Deep-time paleo coastlines from GPlates. */
   paleoCoastlines?: GeoJSON.FeatureCollection | null
 }
-
-const SHELF_VISIBILITY_THRESHOLD_M = -50
 
 export function WorldMap({
   worldData,
   loading,
   paleoFeatures = [],
   shelfGeojson = null,
-  seaLevelMeters = null,
   paleoCoastlines = null,
 }: MapProps) {
-  const shelfVisible =
-    seaLevelMeters != null && seaLevelMeters <= SHELF_VISIBILITY_THRESHOLD_M
+  const shelfVisible = (shelfGeojson?.features?.length ?? 0) > 0
   const renderMode = useStore((s) => s.renderMode)
   const activePerspectives = useStore((s) => s.activePerspectives)
   const setSelectedCarrierId = useStore((s) => s.setSelectedCarrierId)

@@ -24,8 +24,12 @@ interface LegendProps {
   seaLevelMeters?: number | null
   /** True when the continental-shelf overlay is currently rendered. */
   shelfVisible?: boolean
+  /** Active depth band in meters (e.g. -90), if a shelf is on screen. */
+  shelfBandM?: number | null
   /** True when GPlates deep-time coastlines are currently rendered. */
   deepTimeActive?: boolean
+  /** GPlates response — used to surface the reconstruction time. */
+  paleoCoastlines?: GeoJSON.FeatureCollection | null
 }
 
 const PALEO_TYPE_COLORS: Record<string, string> = {
@@ -41,8 +45,13 @@ export function Legend({
   paleoFeatures = [],
   seaLevelMeters,
   shelfVisible = false,
+  shelfBandM = null,
   deepTimeActive = false,
+  paleoCoastlines = null,
 }: LegendProps) {
+  const meta = (paleoCoastlines as unknown as { metadata?: { time_ma?: number } } | null)
+    ?.metadata
+  const reconstructionMa = deepTimeActive && meta?.time_ma != null ? meta.time_ma : null
   const vizMode = useStore((s) => s.vizMode)
   const presentPaleoTypes = new Set(paleoFeatures.filter((p) => p.geometry_geojson).map((p) => p.type))
 
@@ -132,9 +141,12 @@ export function Legend({
               <li className="flex items-center gap-2">
                 <span
                   className="inline-block w-3 h-3 border border-gray-700"
-                  style={{ background: '#d6c79a', opacity: 0.7 }}
+                  style={{ background: '#8b5e34', opacity: 0.85 }}
                 />
-                <span className="text-gray-300">paleo coastline (GPlates)</span>
+                <span className="text-gray-300">
+                  paleo coastline (GPlates
+                  {reconstructionMa != null ? `, ${reconstructionMa} Ma` : ''})
+                </span>
               </li>
             )}
             {shelfVisible && (
@@ -143,7 +155,10 @@ export function Legend({
                   className="inline-block w-3 h-3 border border-gray-700"
                   style={{ background: '#c2b280', opacity: 0.7 }}
                 />
-                <span className="text-gray-300">exposed continental shelf</span>
+                <span className="text-gray-300">
+                  exposed continental shelf
+                  {shelfBandM != null ? ` (~${Math.abs(shelfBandM)} m band)` : ''}
+                </span>
               </li>
             )}
             {Array.from(presentPaleoTypes).map((t) => (

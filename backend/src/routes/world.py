@@ -114,6 +114,7 @@ async def get_world(
     raw = await resolve_world(conn, year, bbox_list, perspective_ids)
 
     observations_raw = raw.pop("_observations", [])
+    disagreed_carrier_ids = raw.pop("_disagreed_carrier_ids", [])
     persp_views = {}
     for pid, view in raw.items():
         if pid.startswith("_"):
@@ -132,6 +133,7 @@ async def get_world(
         bbox=bbox_list,
         perspectives=persp_views,
         observations=observations,
+        disagreed_carrier_ids=disagreed_carrier_ids,
     )
 
 

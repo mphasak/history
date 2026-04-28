@@ -329,7 +329,86 @@ async def resolve_world(
     # Side-channel: observations live under `_observations`. Callers iterating
     # perspectives must skip keys starting with `_`.
     result["_observations"] = observations  # type: ignore[assignment]
+
+    # Side-channel: precompute which carriers in view have claim-level stance
+    # disagreements across the active perspectives. The diff overlay reads this
+    # so it can mark carriers contested even when the disagreement lives on an
+    # adjacent claim/propagation event rather than the carrier itself.
+    result["_disagreed_carrier_ids"] = await _compute_disagreed_carrier_ids(  # type: ignore[assignment]
+        conn,
+        carrier_ids=[c["id"] for c in carriers],
+        perspective_ids=perspective_ids,
+        all_endorsements=all_endorsements,
+    )
     return result
+
+
+async def _compute_disagreed_carrier_ids(
+    conn,
+    carrier_ids: list[str],
+    perspective_ids: list[str],
+    all_endorsements: dict[str, list[dict]],
+) -> list[str]:
+    """
+    For each carrier in view, find the claims relevant to it (claims about the
+    carrier itself, its trait mixes, or propagation events whose destination
+    overlaps it) and mark the carrier as disagreed if any of those claims
+    receive different stances under different active perspectives.
+    """
+    if not carrier_ids or len(perspective_ids) < 2:
+        return []
+
+    # Single batch SQL: list every (carrier_id, claim_id) pair where the claim
+    # is relevant to the carrier under the same relevance rules used by
+    # resolve_carrier_claims.
+    rows = await conn.execute(
+        """
+        WITH cv(cid) AS (SELECT unnest(%(carrier_ids)s::text[]))
+        SELECT car.id AS carrier_id, c.id AS claim_id
+        FROM cv
+        JOIN carrier car ON car.id = cv.cid
+        JOIN claim c ON (
+          (lower(c.subject_type) = 'carrier' AND c.subject_id = car.id)
+          OR (lower(c.subject_type) IN ('carriertrait_mix','carrier_trait_mix')
+              AND c.subject_id LIKE car.id || ':%%')
+          OR (lower(c.subject_type) IN ('propagationevent','propagation_event')
+              AND c.subject_id IN (
+                SELECT pe.id FROM propagation_event pe
+                WHERE
+                  (car.extent IS NOT NULL AND ST_Intersects(pe.destination_point, car.extent))
+                  OR (car.extent IS NULL AND car.centroid IS NOT NULL
+                      AND ST_DWithin(pe.destination_point, car.centroid, %(radius)s))
+                  OR pe.source_trait_ids && (
+                    SELECT array_agg(trait_id) FROM carrier_trait_mix
+                    WHERE carrier_id = car.id
+                  )
+              ))
+        )
+        """,
+        {"carrier_ids": carrier_ids, "radius": _PROP_RELEVANCE_RADIUS_M},
+    )
+    pairs = [(r["carrier_id"], r["claim_id"]) async for r in rows]
+    if not pairs:
+        return []
+
+    indexed = {pid: _index_endorsements(all_endorsements[pid]) for pid in perspective_ids}
+
+    contested: set[str] = set()
+    by_carrier: dict[str, set[int]] = {}
+    for cid, clid in pairs:
+        by_carrier.setdefault(cid, set()).add(clid)
+
+    for cid, claim_ids in by_carrier.items():
+        for clid in claim_ids:
+            stances = set()
+            for pid in perspective_ids:
+                end = indexed[pid].get(("claim", str(clid)))
+                stances.add(end["stance"] if end else "endorses")
+            if len(stances) > 1:
+                contested.add(cid)
+                break
+
+    return sorted(contested)
 
 
 async def resolve_world_at_point(
@@ -636,3 +715,96 @@ async def resolve_carrier_timeline(
         }
         for (year, domain), traits in sorted(snapshots.items())
     ]
+
+
+# Claims about a propagation event whose destination is within this radius of the
+# carrier's centroid count as relevant to that carrier (when the carrier has no
+# explicit extent polygon). Roughly the size of a culture-area for "population"-
+# type carriers; tight enough to keep the Indo-Aryan demo focused on the right
+# carrier, loose enough to surface migrations that arrived nearby.
+_PROP_RELEVANCE_RADIUS_M = 1_500_000
+
+
+async def resolve_carrier_claims(
+    conn,
+    carrier_id: str,
+    perspective_ids: list[str],
+) -> list[dict]:
+    """
+    Returns all claims relevant to a carrier, resolved per active Perspective.
+
+    "Relevant" here means a claim whose subject is one of:
+      * the carrier itself (subject_type=Carrier),
+      * one of the carrier's CarrierTraitMix rows,
+      * a PropagationEvent whose destination is within the carrier's extent (or
+        within ~1500 km of the centroid if no extent polygon exists), OR whose
+        source_trait_ids overlap any trait the carrier carries.
+
+    Each returned claim includes per-Perspective stance + override + sources
+    (re-uses resolve_claim) plus a `subject_kind` discriminator and a derived
+    `has_disagreement` flag that the frontend uses to drive the diff overlay.
+    """
+    if not perspective_ids:
+        perspective_ids = await _default_perspective_ids(conn)
+
+    carrier_row = await conn.execute(
+        """
+        SELECT id, extent IS NOT NULL AS has_extent, centroid
+        FROM carrier
+        WHERE id = %s
+        """,
+        (carrier_id,),
+    )
+    carrier = await carrier_row.fetchone()
+    if not carrier:
+        return []
+
+    claim_id_rows = await conn.execute(
+        """
+        WITH carrier_traits AS (
+            SELECT array_agg(DISTINCT trait_id) AS trait_ids
+            FROM carrier_trait_mix
+            WHERE carrier_id = %(cid)s
+        ),
+        relevant_props AS (
+            SELECT pe.id
+            FROM propagation_event pe
+            CROSS JOIN carrier_traits ct
+            JOIN carrier c ON c.id = %(cid)s
+            WHERE
+              -- Destination intersects the carrier's authored extent ...
+              (c.extent IS NOT NULL AND ST_Intersects(pe.destination_point, c.extent))
+              -- ... or falls within a buffer around the centroid
+              OR (c.extent IS NULL AND c.centroid IS NOT NULL
+                  AND ST_DWithin(pe.destination_point, c.centroid, %(radius)s))
+              -- ... or shares a trait with the carrier's mix
+              OR (ct.trait_ids IS NOT NULL AND pe.source_trait_ids && ct.trait_ids)
+        )
+        SELECT DISTINCT id
+        FROM claim
+        WHERE
+          (lower(subject_type) IN ('carrier') AND subject_id = %(cid)s)
+          OR (lower(subject_type) IN ('carriertrait_mix','carrier_trait_mix')
+              AND subject_id LIKE %(cid_prefix)s)
+          OR (lower(subject_type) IN ('propagationevent','propagation_event')
+              AND subject_id IN (SELECT id FROM relevant_props))
+        ORDER BY id
+        """,
+        {
+            "cid": carrier_id,
+            "cid_prefix": f"{carrier_id}:%",
+            "radius": _PROP_RELEVANCE_RADIUS_M,
+        },
+    )
+    claim_ids = [r["id"] async for r in claim_id_rows]
+
+    resolved: list[dict] = []
+    for cid in claim_ids:
+        claim = await resolve_claim(conn, cid, perspective_ids)
+        # Disagreement = stances differ across the active perspectives.
+        stances = {pv["stance"] for pv in claim["perspectives"].values()}
+        claim["has_disagreement"] = len(stances) > 1
+        claim["subject_kind"] = _normalize_subject_type(claim["subject_type"])
+        resolved.append(claim)
+
+    return resolved

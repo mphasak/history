@@ -1,7 +1,52 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../state'
-import { api, CarrierView, CarrierTimelineResponse } from '../api'
+import { api, CarrierView, CarrierTimelineResponse, CarrierClaim } from '../api'
 import { useWorldQuery, usePerspectives } from '../hooks/useWorldQuery'
+
+const STANCE_STYLE: Record<string, { label: string; bg: string; border: string; text: string }> = {
+  endorses: {
+    label: 'endorses',
+    bg: 'bg-emerald-900/40',
+    border: 'border-emerald-700',
+    text: 'text-emerald-200',
+  },
+  nuances: {
+    label: 'nuances',
+    bg: 'bg-amber-900/40',
+    border: 'border-amber-700',
+    text: 'text-amber-200',
+  },
+  rejects: {
+    label: 'rejects',
+    bg: 'bg-rose-900/40',
+    border: 'border-rose-700',
+    text: 'text-rose-200',
+  },
+  asserts: {
+    label: 'asserts',
+    bg: 'bg-sky-900/40',
+    border: 'border-sky-700',
+    text: 'text-sky-200',
+  },
+}
+
+function StanceBadge({ stance }: { stance: string }) {
+  const style = STANCE_STYLE[stance] ?? STANCE_STYLE.endorses
+  return (
+    <span
+      className={`inline-block uppercase tracking-wide text-[10px] font-semibold px-1.5 py-0.5 rounded ${style.bg} ${style.border} border ${style.text}`}
+    >
+      {style.label}
+    </span>
+  )
+}
+
+function subjectKindLabel(kind: string): string {
+  if (kind === 'carrier_trait_mix') return 'Trait mix'
+  if (kind === 'propagation_event') return 'Migration / propagation'
+  if (kind === 'carrier') return 'This population'
+  return kind.replace(/_/g, ' ')
+}
 
 function TraitBar({ label, fraction, domain }: { label: string; fraction: number; domain: string }) {
   const colors: Record<string, string> = {
@@ -35,6 +80,8 @@ export function DetailPanel() {
 
   const [timelines, setTimelines] = useState<Record<string, CarrierTimelineResponse>>({})
   const [loadingTimelines, setLoadingTimelines] = useState(false)
+  const [claims, setClaims] = useState<CarrierClaim[]>([])
+  const [loadingClaims, setLoadingClaims] = useState(false)
 
   useEffect(() => {
     if (!selectedCarrierId || activePerspectives.length === 0) return
@@ -51,6 +98,15 @@ export function DetailPanel() {
         setLoadingTimelines(false)
       })
       .catch(() => setLoadingTimelines(false))
+  }, [selectedCarrierId, activePerspectives.join(',')])
+
+  useEffect(() => {
+    if (!selectedCarrierId) { setClaims([]); return }
+    setLoadingClaims(true)
+    api
+      .carrierClaims(selectedCarrierId, activePerspectives)
+      .then((res) => { setClaims(res.claims); setLoadingClaims(false) })
+      .catch(() => { setClaims([]); setLoadingClaims(false) })
   }, [selectedCarrierId, activePerspectives.join(',')])
 
   if (!selectedCarrierId) return null
@@ -167,6 +223,88 @@ export function DetailPanel() {
             </div>
           )
         })}
+
+        {/* Claims about this carrier (its trait mixes, propagation events).
+            Stance differences across active perspectives are surfaced here —
+            this is where the contested-knowledge story actually lands. */}
+        {(loadingClaims || claims.length > 0) && (
+          <div>
+            <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
+              Claims about this population
+              {claims.some((c) => c.has_disagreement) && (
+                <span className="ml-2 normal-case tracking-normal text-rose-400">
+                  · perspectives disagree
+                </span>
+              )}
+            </div>
+
+            {loadingClaims && (
+              <p className="text-xs text-gray-500">Loading claims…</p>
+            )}
+
+            <div className="space-y-3">
+              {claims.map((claim) => (
+                <div
+                  key={claim.id}
+                  className={`border rounded-lg p-3 ${
+                    claim.has_disagreement
+                      ? 'border-rose-700 bg-rose-950/30'
+                      : 'border-gray-700 bg-gray-800/40'
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between gap-2 mb-1">
+                    <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                      {subjectKindLabel(claim.subject_kind)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-200 leading-snug mb-2">
+                    {claim.statement}
+                  </p>
+
+                  {/* Per-perspective stance + override + sources */}
+                  <div className="space-y-2">
+                    {Object.entries(claim.perspectives).map(([pid, pv]) => {
+                      const perspName = getPerspDisplayName(pid)
+                      return (
+                        <div key={pid} className="text-xs">
+                          <div className="flex items-center gap-2 mb-1">
+                            <StanceBadge stance={pv.stance} />
+                            <span className="text-gray-300 truncate">{perspName}</span>
+                          </div>
+                          {pv.override_statement && (
+                            <p className="text-[11px] text-gray-300 leading-snug pl-1 mb-1 italic">
+                              “{pv.override_statement}”
+                            </p>
+                          )}
+                          {pv.sources.length > 0 && (
+                            <ul className="text-[10px] text-gray-500 space-y-0.5 pl-1">
+                              {pv.sources.map((s) => {
+                                const w = s.weight_override ?? s.default_weight
+                                return (
+                                  <li key={s.source_id} className="leading-snug">
+                                    <span className="text-gray-400">
+                                      {s.citation}
+                                    </span>
+                                    <span className="text-gray-600">
+                                      {' '}· weight {w.toFixed(2)}
+                                      {s.weight_override != null && s.weight_override !== s.default_weight
+                                        ? ` (override; default ${s.default_weight.toFixed(2)})`
+                                        : ''}
+                                    </span>
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

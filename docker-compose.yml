@@ -70,6 +70,29 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Seeds non-sapiens hominins, additional UP clusters, and Holocene/historical
+  # ethnolinguistic carriers — i.e. fills the population coverage gaps left by
+  # the spreadsheet and the genetics seed. Idempotent (DELETE+INSERT keyed on
+  # CARR_HIST_* / CARR_HOMININ_* prefixes).
+  carriers-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      paleo-seed:
+        condition: service_completed_successfully
+      genetics-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/005_seed_historical_carriers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   backend:
     build:
       context: ./backend
@@ -82,6 +105,8 @@ services:
       paleo-seed:
         condition: service_completed_successfully
       genetics-seed:
+        condition: service_completed_successfully
+      carriers-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

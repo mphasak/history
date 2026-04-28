@@ -131,39 +131,78 @@ export function usePaleoCoastlines(): {
   return { data, loading, error }
 }
 
-// Continental shelf — polygon of L_0 minus K_200 from Natural Earth bathymetry.
-// Fetched once and cached for the session (~2MB).
-let _shelfPromise: Promise<GeoJSON.FeatureCollection> | null = null
-function loadShelf(): Promise<GeoJSON.FeatureCollection> {
-  if (_shelfPromise) return _shelfPromise
-  _shelfPromise = fetch('/paleo/continental_shelf.geojson').then((r) => {
-    if (!r.ok) throw new Error(`shelf load failed: ${r.status}`)
+// Continental-shelf depth bands (m). Each entry is a polygon eroded from the
+// full L_0 minus K_200 shelf to approximate land exposure at that sea level.
+// Picked by sea-level proximity at runtime; loaded lazily and cached.
+const SHELF_BANDS_M = [-150, -90, -50, -25] as const
+type ShelfBandM = (typeof SHELF_BANDS_M)[number]
+
+const _shelfPromises: Partial<Record<ShelfBandM, Promise<GeoJSON.FeatureCollection>>> = {}
+function loadShelfBand(band: ShelfBandM): Promise<GeoJSON.FeatureCollection> {
+  const cached = _shelfPromises[band]
+  if (cached) return cached
+  const p = fetch(`/paleo/shelf_${band}m.geojson`).then((r) => {
+    if (!r.ok) throw new Error(`shelf band ${band} load failed: ${r.status}`)
     return r.json() as Promise<GeoJSON.FeatureCollection>
   })
-  return _shelfPromise
+  _shelfPromises[band] = p
+  return p
 }
 
-export function useContinentalShelf(): {
+// Pick the band whose depth is closest to the current sea level (clamped to
+// the shallowest band when sea level is between -25 and 0 m).
+function pickShelfBand(seaLevelMeters: number): ShelfBandM {
+  let best: ShelfBandM = SHELF_BANDS_M[0]
+  let bestDiff = Math.abs(best - seaLevelMeters)
+  for (const b of SHELF_BANDS_M) {
+    const d = Math.abs(b - seaLevelMeters)
+    if (d < bestDiff) {
+      best = b
+      bestDiff = d
+    }
+  }
+  return best
+}
+
+export function useContinentalShelf(seaLevelMeters: number | null | undefined): {
   data: GeoJSON.FeatureCollection | null
+  band: ShelfBandM | null
   loading: boolean
 } {
   const [data, setData] = useState<GeoJSON.FeatureCollection | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [band, setBand] = useState<ShelfBandM | null>(null)
+  const [loading, setLoading] = useState(false)
+
   useEffect(() => {
+    if (seaLevelMeters == null || seaLevelMeters > -25) {
+      // Above the shallowest band: nothing to show.
+      setData(null)
+      setBand(null)
+      setLoading(false)
+      return
+    }
+    const target = pickShelfBand(seaLevelMeters)
     let cancelled = false
-    loadShelf()
+    setLoading(true)
+    loadShelfBand(target)
       .then((d) => {
         if (!cancelled) {
           setData(d)
+          setBand(target)
           setLoading(false)
         }
       })
       .catch(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setData(null)
+          setBand(null)
+          setLoading(false)
+        }
       })
     return () => { cancelled = true }
-  }, [])
-  return { data, loading }
+  }, [seaLevelMeters])
+
+  return { data, band, loading }
 }
 
 export function usePerspectives(): PerspectivesResult {

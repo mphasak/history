@@ -94,6 +94,10 @@ class WorldResponse(BaseModel):
     bbox: list[float]
     perspectives: dict[str, PerspectiveWorldView]
     observations: list[TraitObservationView] = []
+    # Carriers in view whose claims (about the carrier itself, its trait mixes,
+    # or propagation events overlapping it) receive different stances under the
+    # active perspectives. The diff-overlay uses this directly.
+    disagreed_carrier_ids: list[str] = []
 
 
 class WorldAtPointResponse(BaseModel):
@@ -127,6 +131,31 @@ class ClaimResponse(BaseModel):
     quantitative_value: Any | None
     default_aggregated_confidence: int | None
     perspectives: dict[str, ClaimPerspectiveView]
+
+
+class CarrierClaim(BaseModel):
+    """A claim relevant to a carrier, with per-Perspective stance + sources.
+
+    `subject_kind` discriminates how the claim relates to the carrier — directly
+    about the carrier, about one of its trait mixes, or about a propagation
+    event whose destination overlaps it. `has_disagreement` is set whenever
+    stances differ across the active perspectives, and is what the diff
+    overlay uses to mark a carrier as contested.
+    """
+    id: int
+    subject_type: str
+    subject_id: str
+    subject_kind: str
+    statement: str
+    quantitative_value: Any | None = None
+    default_aggregated_confidence: int | None = None
+    has_disagreement: bool
+    perspectives: dict[str, ClaimPerspectiveView]
+
+
+class CarrierClaimsResponse(BaseModel):
+    carrier_id: str
+    claims: list[CarrierClaim]
 
 
 class TraitRelationNode(BaseModel):

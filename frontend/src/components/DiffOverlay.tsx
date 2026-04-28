@@ -25,6 +25,13 @@ export function computeDiff(worldData: WorldResponse): CarrierDiffStatus[] {
     }
   }
 
+  // Backend-computed: carriers whose related claims (carrier-level,
+  // carrier_trait_mix, or nearby propagation_event) receive different stances
+  // under different active perspectives. Most real disagreements live there
+  // rather than on the carrier row itself, so honoring this set is what makes
+  // diff-overlay actually mark contested carriers.
+  const claimDisagreed = new Set(worldData.disagreed_carrier_ids ?? [])
+
   const result: CarrierDiffStatus[] = []
 
   for (const carrierId of allCarrierIds) {
@@ -40,7 +47,7 @@ export function computeDiff(worldData: WorldResponse): CarrierDiffStatus[] {
 
     const allPresent = presences.every(Boolean)
     const allSameStance = stances.every((s) => s === stances[0])
-    const hasDisagreement = !allPresent || !allSameStance
+    const hasDisagreement = !allPresent || !allSameStance || claimDisagreed.has(carrierId)
 
     result.push({
       carrierId,

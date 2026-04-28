@@ -23,7 +23,9 @@ export default function App() {
   const clickPoint = useStore((s) => s.clickPoint)
   const { data: worldData, loading, error } = useWorldQuery()
   const { data: paleo } = usePaleoBasemap()
-  const { data: shelfGeojson } = useContinentalShelf()
+  const { data: shelfGeojson, band: shelfBandM } = useContinentalShelf(
+    paleo?.sea_level_meters ?? null
+  )
   const { data: paleoCoastlines } = usePaleoCoastlines()
 
   return (
@@ -103,8 +105,10 @@ export default function App() {
             worldData={worldData}
             paleoFeatures={paleo?.physical_features ?? []}
             seaLevelMeters={paleo?.sea_level_meters}
-            shelfVisible={(paleo?.sea_level_meters ?? 0) <= -50}
+            shelfVisible={shelfBandM != null && (shelfGeojson?.features?.length ?? 0) > 0}
+            shelfBandM={shelfBandM}
             deepTimeActive={(paleoCoastlines?.features?.length ?? 0) > 0}
+            paleoCoastlines={paleoCoastlines}
           />
         </div>
 

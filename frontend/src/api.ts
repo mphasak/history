@@ -89,6 +89,10 @@ export interface WorldResponse {
   bbox: number[]
   perspectives: Record<string, PerspectiveWorldView>
   observations: TraitObservationView[]
+  /** Carrier IDs flagged as contested (claim-level stance differences across
+   * the active perspectives). Backend-computed so the diff overlay doesn't
+   * need to fetch per-carrier claims to know which to mark. */
+  disagreed_carrier_ids?: string[]
 }
 
 export interface WorldAtPointResponse {
@@ -122,6 +126,24 @@ export interface ClaimResponse {
   quantitative_value: unknown
   default_aggregated_confidence: number | null
   perspectives: Record<string, ClaimPerspectiveView>
+}
+
+export interface CarrierClaim {
+  id: number
+  subject_type: string
+  subject_id: string
+  /** "carrier" | "carrier_trait_mix" | "propagation_event" — discriminates how the claim relates to the carrier. */
+  subject_kind: string
+  statement: string
+  quantitative_value: unknown
+  default_aggregated_confidence: number | null
+  has_disagreement: boolean
+  perspectives: Record<string, ClaimPerspectiveView>
+}
+
+export interface CarrierClaimsResponse {
+  carrier_id: string
+  claims: CarrierClaim[]
 }
 
 export interface CarrierTimelineSnapshot {
@@ -168,6 +190,11 @@ export const api = {
 
   carrierTimeline: (carrierId: string, perspective: string): Promise<CarrierTimelineResponse> =>
     get(`/carrier/${carrierId}/timeline`, { perspective }),
+
+  carrierClaims: (carrierId: string, perspectives: string[]): Promise<CarrierClaimsResponse> =>
+    get(`/carrier/${carrierId}/claims`, {
+      perspectives: perspectives.join(',') || undefined,
+    }),
 
   claim: (claimId: number, perspectives: string[]): Promise<ClaimResponse> =>
     get(`/claim/${claimId}`, {
