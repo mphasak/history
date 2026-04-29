@@ -250,9 +250,14 @@ export function useHistoricalPlaces(enabled: boolean): {
 }
 
 /**
- * Past/future lineage for the currently selected carrier at the slider year.
- * No-ops to a null fetch when lineageMode is "off" or no carrier is selected,
- * so toggling Off is cheap and the map clears immediately.
+ * Past/future lineage for the currently selected carrier.
+ *
+ * The lineage is anchored on the year *when the user activates lineage mode*
+ * (or selects a different carrier), and stays stable as the slider scrubs —
+ * otherwise animation mode would re-fetch on every year tick, causing the
+ * edge set itself to flicker as "post-current-year" carriers drop out of
+ * range. A static anchor lets the animation just fade nodes in/out based on
+ * whether they're "alive" at the current year.
  */
 export function useCarrierLineage(): {
   data: CarrierLineageResponse | null
@@ -272,8 +277,11 @@ export function useCarrierLineage(): {
     }
     let cancelled = false
     setLoading(true)
+    // Capture the year at activation as the anchor; it does not refetch on
+    // subsequent year changes.
+    const anchorYear = year
     api
-      .carrierLineage(carrierId, year, lineageMode)
+      .carrierLineage(carrierId, anchorYear, lineageMode)
       .then((res) => {
         if (!cancelled) {
           setData(res)
@@ -287,7 +295,10 @@ export function useCarrierLineage(): {
         }
       })
     return () => { cancelled = true }
-  }, [lineageMode, carrierId, year])
+    // Intentionally exclude `year` so the anchor stays put while the slider
+    // (and animation) move it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineageMode, carrierId])
 
   return { data, loading }
 }

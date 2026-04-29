@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useStore } from './state'
 import { WorldMap } from './components/Map'
 import { YearSlider } from './components/YearSlider'
@@ -25,6 +26,10 @@ export default function App() {
   const setLabelMode = useStore((s) => s.setLabelMode)
   const lineageMode = useStore((s) => s.lineageMode)
   const setLineageMode = useStore((s) => s.setLineageMode)
+  const lineageAnimating = useStore((s) => s.lineageAnimating)
+  const setLineageAnimating = useStore((s) => s.setLineageAnimating)
+  const year = useStore((s) => s.year)
+  const setYear = useStore((s) => s.setYear)
   const selectedCarrierId = useStore((s) => s.selectedCarrierId)
   const clickPoint = useStore((s) => s.clickPoint)
   const { data: worldData, loading, error } = useWorldQuery()
@@ -35,6 +40,53 @@ export default function App() {
   const { data: paleoCoastlines } = usePaleoCoastlines()
   const { data: historicalPlaces } = useHistoricalPlaces(labelMode === 'historical')
   const { data: lineage } = useCarrierLineage()
+
+  // Lineage animation: when toggled on, advance the year slider so the user
+  // sees ancestors fade in then out, the focal carrier light up, and
+  // descendants emerge in turn. The visible range is computed from the
+  // lineage payload so the playback covers exactly the relevant span.
+  // Auto-stops at the end (no looping — that just disorients).
+  const animationStartRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!lineageAnimating || !lineage) return
+    const minY = Math.min(
+      lineage.focal?.date_min_year ?? lineage.year,
+      ...lineage.ancestors.map((a) => a.date_min_year),
+    )
+    const maxY = Math.max(
+      lineage.focal?.date_max_year ?? lineage.year,
+      ...lineage.descendants.map((d) => d.date_max_year),
+    )
+    if (!Number.isFinite(minY) || !Number.isFinite(maxY) || minY >= maxY) {
+      setLineageAnimating(false)
+      return
+    }
+    const span = maxY - minY
+    // Aim for ~10 s playback regardless of lineage span. Tick at 50 ms.
+    const tickMs = 50
+    const totalTicks = 10000 / tickMs
+    const stepYears = Math.max(1, Math.ceil(span / totalTicks))
+    if (animationStartRef.current === null || year < minY || year > maxY) {
+      setYear(minY)
+      animationStartRef.current = minY
+    }
+    const id = window.setInterval(() => {
+      const cur = useStore.getState().year
+      const next = cur + stepYears
+      if (next > maxY) {
+        setYear(maxY)
+        setLineageAnimating(false)
+        animationStartRef.current = null
+        window.clearInterval(id)
+        return
+      }
+      setYear(next)
+    }, tickMs)
+    return () => window.clearInterval(id)
+    // Year is intentionally excluded so the interval isn't torn down on every
+    // tick — we read the latest year via useStore.getState() inside.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineageAnimating, lineage])
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
@@ -137,6 +189,22 @@ export default function App() {
                 {mode === 'off' ? 'Off' : mode.charAt(0).toUpperCase() + mode.slice(1)}
               </button>
             ))}
+            <button
+              onClick={() => setLineageAnimating(!lineageAnimating)}
+              disabled={lineageMode === 'off' || !lineage}
+              className={`text-xs px-2 py-1 rounded transition-colors ml-1 ${
+                lineageAnimating
+                  ? 'bg-rose-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              title={
+                lineageAnimating
+                  ? 'Pause animation'
+                  : 'Animate the lineage forward in time so ancestors fade in/out and descendants light up in sequence.'
+              }
+            >
+              {lineageAnimating ? '⏸ Pause' : '▶ Play'}
+            </button>
           </div>
         </div>
 

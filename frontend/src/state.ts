@@ -47,6 +47,13 @@ interface HistorySimState {
 
   lineageMode: LineageMode
   setLineageMode: (mode: LineageMode) => void
+
+  /** When true, the lineage view auto-advances the year slider so the user
+   * sees ancestors fade in then out, the focal carrier light up, and
+   * descendants appear in sequence. Stops automatically when the year
+   * passes the latest descendant. */
+  lineageAnimating: boolean
+  setLineageAnimating: (v: boolean) => void
 }
 
 // Read initial year + perspectives from URL params
@@ -93,6 +100,9 @@ export const useStore = create<HistorySimState>((set) => ({
 
   lineageMode: 'off',
   setLineageMode: (mode) => set({ lineageMode: mode }),
+
+  lineageAnimating: false,
+  setLineageAnimating: (v) => set({ lineageAnimating: v }),
 }))
 
 function updateUrl(changes: { year?: number; perspectives?: string[] }) {

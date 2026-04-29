@@ -113,6 +113,7 @@ function useMapInstance({
   const vizModeRef = useRef(vizMode)
   useEffect(() => { vizModeRef.current = vizMode }, [vizMode])
   const labelMode = useStore((s) => s.labelMode)
+  const year = useStore((s) => s.year)
 
   useEffect(() => {
     const container = document.getElementById(containerId)
@@ -414,7 +415,14 @@ function useMapInstance({
             '#9ca3af',
           ],
           'line-width': 2,
-          'line-opacity': 0.85,
+          // Active edges (whose connected carrier is alive at the current
+          // slider year) render at full opacity; inactive edges fade to a
+          // ghosted state so the animation reads as "this connection has
+          // not yet emerged" or "is in the past." Property is recomputed
+          // and pushed by the lineage update effect.
+          'line-opacity': [
+            'case', ['==', ['get', 'active'], true], 0.85, 0.18,
+          ],
           'line-dasharray': [2, 2],
         },
       })
@@ -440,7 +448,12 @@ function useMapInstance({
           ],
           'circle-stroke-color': '#0f172a',
           'circle-stroke-width': 2,
-          'circle-opacity': 0.95,
+          // Active nodes (alive at the current year) glow at full opacity;
+          // inactive nodes ghost out so the user can watch them light up in
+          // sequence as the year animates forward.
+          'circle-opacity': [
+            'case', ['==', ['get', 'active'], true], 0.95, 0.25,
+          ],
         },
       })
       map.addLayer({
@@ -775,8 +788,14 @@ function useMapInstance({
 
       const edges: GeoJSON.Feature[] = []
       const nodes: GeoJSON.Feature[] = []
+      // A node/edge is "active" when its carrier's date range covers the
+      // current year. The lineage anchor itself stays fixed (see
+      // useCarrierLineage), so toggling animation just changes which
+      // ancestors/descendants light up — the cast of nodes is stable.
+      const isActive = (minY: number, maxY: number) => year >= minY && year <= maxY
       if (lineage?.focal?.centroid) {
         const f = lineage.focal
+        const focalActive = isActive(f.date_min_year, f.date_max_year)
         nodes.push({
           type: 'Feature',
           geometry: { type: 'Point', coordinates: [f.centroid!.lon, f.centroid!.lat] },
@@ -784,18 +803,25 @@ function useMapInstance({
             id: f.id,
             display_name: f.display_name,
             role: 'focal',
+            active: focalActive,
           },
         })
         const focalLngLat: [number, number] = [f.centroid!.lon, f.centroid!.lat]
         for (const a of lineage.ancestors) {
           if (!a.centroid) continue
+          const active = isActive(a.date_min_year, a.date_max_year)
           edges.push({
             type: 'Feature',
             geometry: {
               type: 'LineString',
               coordinates: [[a.centroid.lon, a.centroid.lat], focalLngLat],
             },
-            properties: { side: 'past', id: a.id, shared: a.shared_trait_ids.join(',') },
+            properties: {
+              side: 'past',
+              id: a.id,
+              shared: a.shared_trait_ids.join(','),
+              active,
+            },
           })
           nodes.push({
             type: 'Feature',
@@ -805,18 +831,25 @@ function useMapInstance({
               display_name: a.display_name,
               role: 'past',
               date_max_year: a.date_max_year,
+              active,
             },
           })
         }
         for (const d of lineage.descendants) {
           if (!d.centroid) continue
+          const active = isActive(d.date_min_year, d.date_max_year)
           edges.push({
             type: 'Feature',
             geometry: {
               type: 'LineString',
               coordinates: [focalLngLat, [d.centroid.lon, d.centroid.lat]],
             },
-            properties: { side: 'future', id: d.id, shared: d.shared_trait_ids.join(',') },
+            properties: {
+              side: 'future',
+              id: d.id,
+              shared: d.shared_trait_ids.join(','),
+              active,
+            },
           })
           nodes.push({
             type: 'Feature',
@@ -826,6 +859,7 @@ function useMapInstance({
               display_name: d.display_name,
               role: 'future',
               date_min_year: d.date_min_year,
+              active,
             },
           })
         }
@@ -835,7 +869,7 @@ function useMapInstance({
     }
     if (map.getSource('lineage-edges')) apply()
     else map.once('load', apply)
-  }, [lineage])
+  }, [lineage, year])
 
   // Update historical-places source + visibility together. Same combined
   // pattern as the shelf effect: data and visibility flip in lockstep so
