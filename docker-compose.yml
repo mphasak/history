@@ -233,6 +233,27 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Post-Columbian / globalization-era carriers (~13): colonial-period
+  # settlers, slave-trade-derived diaspora, and post-WWII demographic
+  # synthesis populations across the Americas, Australia/NZ, southern
+  # Africa, and modern Israel. CARR_HIST_POST1492_* prefix.
+  post-columbian-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      carriers-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/017_seed_post_columbian_carriers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Modern-US trait_mix backfill (Rural South + SF Bay Area). Necessary for
   # the multi-hop lineage demo: without these the BFS can't trace from
   # the modern carriers back through European Bronze Age, Mesolithic,
@@ -388,6 +409,8 @@ services:
       modern-us-traitmix-seed:
         condition: service_completed_successfully
       temporal-bridge-seed:
+        condition: service_completed_successfully
+      post-columbian-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

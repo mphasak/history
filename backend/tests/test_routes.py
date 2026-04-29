@@ -400,6 +400,40 @@ async def test_world_includes_regional_gap_filler_carriers(client):
 
 
 @pytest.mark.asyncio
+async def test_americas_post_1700_reflects_colonization_and_slave_trade(client):
+    """
+    Regression: post-Columbian Americas previously showed only indigenous-
+    descendant carriers; European colonial and African-diasporic
+    populations were missing. The 017 seed adds CARR_HIST_POST1492_*
+    carriers; verify they show up at year 1700 alongside indigenous
+    populations.
+    """
+    r = await client.get(
+        "/world",
+        params={
+            "year": 1700,
+            "bbox": "-130,-55,-50,75",
+            "perspectives": "PERSP_REICH_2018",
+        },
+    )
+    assert r.status_code == 200
+    ids = {c["id"] for c in r.json()["perspectives"]["PERSP_REICH_2018"]["carriers"]}
+    if not any(i.startswith("CARR_HIST_POST1492_") for i in ids):
+        pytest.skip("017 post-Columbian seed not applied")
+    expected = {
+        "CARR_HIST_POST1492_COLONIAL_NA",       # English/Dutch/French settlers
+        "CARR_HIST_POST1492_AFRICAN_AMERICAN",  # Atlantic slave trade
+        "CARR_HIST_POST1492_COLONIAL_ANDEAN",   # Spanish Andes
+        "CARR_HIST_POST1492_AFRO_CARIBBEAN",
+    }
+    missing = expected - ids
+    assert not missing, (
+        f"Americas at 1700 CE should show colonial + slave-trade-derived "
+        f"populations; missing: {missing}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_north_america_no_temporal_gap_at_700_ce(client):
     """
     Regression test: scrubbing to year 700 CE used to show an empty North
