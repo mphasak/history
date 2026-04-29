@@ -167,17 +167,49 @@ const ROUTES: Route[] = [
 ]
 
 /**
+ * Antimeridian-safe normalization for a polyline.
+ *
+ * MapLibre/GeoJSON treat each LineString segment as a great-circle path
+ * between its two vertices. If consecutive longitudes are >180° apart in
+ * the [-180, 180] sense (e.g. 170 → -170, "across the dateline"), the
+ * renderer takes the *long* way around the globe — producing the bug
+ * where a Bering crossing appeared to lasso back across all of Asia.
+ *
+ * Fix: walk the polyline and shift each successive point by ±360° as
+ * needed so the longitude difference to its predecessor is in (-180, 180].
+ * MapLibre happily renders longitudes outside [-180, 180] (it wraps them
+ * for display), so the resulting polyline draws as one continuous arc
+ * across the dateline.
+ */
+function unwrapPolyline(poly: LngLat[]): LngLat[] {
+  if (poly.length < 2) return poly.slice()
+  const out: LngLat[] = [poly[0]]
+  let prev = poly[0]
+  for (let i = 1; i < poly.length; i++) {
+    let lon = poly[i][0]
+    const lat = poly[i][1]
+    while (lon - prev[0] > 180) lon -= 360
+    while (lon - prev[0] < -180) lon += 360
+    const fixed: LngLat = [lon, lat]
+    out.push(fixed)
+    prev = fixed
+  }
+  return out
+}
+
+/**
  * Returns a polyline of [lon, lat] points connecting `from` to `to` through
  * the appropriate waypoints (when a route rule matches), or just
- * `[from, to]` for edges with no special routing.
+ * `[from, to]` for edges with no special routing. Antimeridian-unwrapped
+ * so MapLibre always takes the short way across the dateline.
  */
 export function routeBetween(from: LngLat, to: LngLat): LngLat[] {
   for (const r of ROUTES) {
     if (r.match(from, to)) {
-      return [from, ...r.waypoints, to]
+      return unwrapPolyline([from, ...r.waypoints, to])
     }
   }
-  return [from, to]
+  return unwrapPolyline([from, to])
 }
 
 /**
