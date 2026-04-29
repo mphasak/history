@@ -18,6 +18,20 @@ See `plan.md` for scope; `schema_v0.3.md` for the data model;
 
 ---
 
+## The harness
+
+A small, stable entry point for agents and CI lives at `harness/`. The
+single command an agent runs to validate this codebase is:
+
+```bash
+./harness/run.sh check     # health → tests → golden flows → invariants
+./harness/run.sh drift     # advisory: report stale / missing data
+```
+
+`AGENTS.md` (top of the repo) is the short progressive-disclosure entry
+point; this `CLAUDE.md` is the deep reference. See `harness/README.md`
+for what each subcommand validates.
+
 ## Running the stack
 
 ```bash
