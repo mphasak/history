@@ -374,6 +374,7 @@ the lifetime of the map, so source existence is the right gate.
 | `db/013_seed_regional_gap_carriers.sql` | 31 region/era gap-fillers (`CARR_HIST_GAP_*` prefix): Andean / Mesoamerican / Caribbean / sub-Saharan / Pacific / Arctic / additional N. American carriers, all cited via DEDUCED_PHASE_0 |
 | `db/014_seed_missing_trait_mixes.sql` | Editorial best-effort ancestry compositions for the 93 carriers from 010/012/013 that lacked trait_mix; tagged `[AUTO-TRAITMIX-014]`, cited via DEDUCED_PHASE_0 |
 | `db/015_seed_modern_us_trait_mixes.sql` | Modern-US trait_mix for `CARR_RURAL_SOUTH_US_2025` + `CARR_SF_BAY_AREA_2025` so the multi-hop lineage BFS can trace back through European Bronze Age / OOA to Neanderthal; tagged `[AUTO-TRAITMIX-015]` |
+| `db/016_seed_temporal_bridge_carriers.sql` | Temporal-bridge carriers (`CARR_HIST_BRIDGE_*`) filling regional date-range gaps so populations don't appear extinct as the slider scrubs across centuries: Late Woodland / Anasazi / Hohokam / Fremont (N America), Cupisnique / Paracas (Andean), Afanasievo / Andronovo / Botai / Okunev / Karasuk / Tagar (Siberia), Colonial Mesoamerica, Garamantes, Zagwe Ethiopia |
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
 | `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |

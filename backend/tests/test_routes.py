@@ -400,6 +400,39 @@ async def test_world_includes_regional_gap_filler_carriers(client):
 
 
 @pytest.mark.asyncio
+async def test_north_america_no_temporal_gap_at_700_ce(client):
+    """
+    Regression test: scrubbing to year 700 CE used to show an empty North
+    America between Hopewell ending (~500 CE) and Mississippian starting
+    (~800 CE). The 016 temporal-bridge seed adds Late Woodland / Anasazi /
+    Hohokam / Fremont so that gap is filled.
+    """
+    r = await client.get(
+        "/world",
+        params={
+            "year": 700,
+            "bbox": "-130,25,-50,75",
+            "perspectives": "PERSP_REICH_2018",
+        },
+    )
+    assert r.status_code == 200
+    carriers = r.json()["perspectives"]["PERSP_REICH_2018"]["carriers"]
+    n_am_count = len(carriers)
+    if n_am_count == 0:
+        pytest.skip("016 temporal-bridge seed not applied")
+    assert n_am_count >= 3, (
+        f"Expected at least 3 N American carriers active at 700 CE; got {n_am_count}: "
+        f"{[c['id'] for c in carriers]}"
+    )
+    ids = {c["id"] for c in carriers}
+    assert ids & {
+        "CARR_HIST_BRIDGE_LATE_WOODLAND",
+        "CARR_HIST_BRIDGE_ANASAZI",
+        "CARR_HIST_BRIDGE_HOHOKAM",
+    }, f"Expected at least one bridge carrier; got {ids}"
+
+
+@pytest.mark.asyncio
 async def test_carrier_lineage_future_excludes_sibling_populations(client):
     """
     Regression test: the future of First Americans (CARR_PALEO_AMER_15K)

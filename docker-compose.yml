@@ -209,6 +209,30 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Temporal-bridge carriers (~16): fills regional date-range gaps that
+  # made populations look extinct as the slider crossed certain centuries
+  # (e.g. N America 600-700 CE between Hopewell and Mississippian).
+  # Adds Late Woodland / Anasazi / Hohokam / Fremont (N America), Cupisnique /
+  # Paracas / Amazonian formative (S America), Afanasievo / Andronovo /
+  # Botai / Okunev / Karasuk / Tagar (Siberia), Colonial Mesoamerica,
+  # Garamantes, Zagwe Ethiopia. CARR_HIST_BRIDGE_* prefix.
+  temporal-bridge-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      carriers-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/016_seed_temporal_bridge_carriers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Modern-US trait_mix backfill (Rural South + SF Bay Area). Necessary for
   # the multi-hop lineage demo: without these the BFS can't trace from
   # the modern carriers back through European Bronze Age, Mesolithic,
@@ -362,6 +386,8 @@ services:
       trait-mix-backfill-seed:
         condition: service_completed_successfully
       modern-us-traitmix-seed:
+        condition: service_completed_successfully
+      temporal-bridge-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim
