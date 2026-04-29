@@ -4,7 +4,7 @@
 - ✓ Territory polygons that interpolate population extent at the queried year (db/009 + carrier_extent_snapshot + resolver LATERAL lookup; Roman Empire growth/peak/decline, Mongol/Persian/Han/Tang/Aztec/Inca/Maya/Khmer/Ottoman/Abbasid peaks, Bay Area counties for the modern US carriers).
 - ✓ Allow visualizing the path into the past / future for a given population (`GET /carrier/{id}/lineage` + Lineage Off/Past/Future/Both header toggle; amber edges look back, cyan edges look forward; shared trait_ids label each edge).
 - ✓ Animation mode (Play/Pause button next to the Lineage toggle): the year slider auto-advances over the lineage span; ancestors fade in then ghost out, the focal carrier lights up, then descendants light up in sequence.
-- when displaying more than one pouplation on the map at a time, color code them.
+- ✓ Color-code multiple populations by their dominant ancestry trait ("population cluster") — Color: Cluster/Mono header toggle; legend lists the clusters present in view (Steppe_MLBA, ANI, ANATOLIAN_FARMER, etc.). Disagreement-red still wins in diff overlay.
 - think of some more interesting ways to visualize this data and add them as options.  dots on map is not compelling.  regions are compelling.  
 - the data still seems sparse.  iterate through all time points and notable geographies, and make sure we have data there for them if there is any out there.  or if you don't find hard citations but you know e.g. "fertile crescent population" started here, add it yourself with self-citation
 - for each population, find a representative picture from wikipedia, and display it in the inspector panel when viewing it

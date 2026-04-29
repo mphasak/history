@@ -3,6 +3,7 @@ import maplibregl from 'maplibre-gl'
 import { WorldResponse, CarrierView, TraitObservationView, PaleoFeature, CarrierLineageResponse } from '../api'
 import { useStore } from '../state'
 import { computeDiff } from './DiffOverlay'
+import { clusterColor } from '../lib/clusters'
 
 // Domain → hex color (kept in sync with the legend and DetailPanel TraitBar).
 export const DOMAIN_COLORS: Record<string, string> = {
@@ -114,6 +115,7 @@ function useMapInstance({
   useEffect(() => { vizModeRef.current = vizMode }, [vizMode])
   const labelMode = useStore((s) => s.labelMode)
   const year = useStore((s) => s.year)
+  const carrierColorMode = useStore((s) => s.carrierColorMode)
 
   useEffect(() => {
     const container = document.getElementById(containerId)
@@ -247,9 +249,8 @@ function useMapInstance({
         paint: {
           'fill-color': [
             'case',
-            ['get', 'disagreed'],
-            '#ef4444',
-            '#3b82f6',
+            ['get', 'disagreed'], '#ef4444',
+            ['get', 'color'],
           ],
           'fill-opacity': [
             'case',
@@ -273,9 +274,8 @@ function useMapInstance({
         paint: {
           'line-color': [
             'case',
-            ['get', 'disagreed'],
-            '#ef4444',
-            '#60a5fa',
+            ['get', 'disagreed'], '#ef4444',
+            ['get', 'color'],
           ],
           'line-width': 1.5,
         },
@@ -290,9 +290,8 @@ function useMapInstance({
         paint: {
           'line-color': [
             'case',
-            ['get', 'disagreed'],
-            '#ef4444',
-            '#60a5fa',
+            ['get', 'disagreed'], '#ef4444',
+            ['get', 'color'],
           ],
           'line-width': 1.5,
           'line-dasharray': [3, 2],
@@ -325,6 +324,11 @@ function useMapInstance({
         data: { type: 'FeatureCollection', features: [] },
       })
 
+      // Carrier color expression: disagreement-red wins when in diff overlay,
+      // otherwise the dot takes its `color` property which is computed per-
+      // feature from carrierColorMode + region (see the carriers data effect).
+      // This way the legend, dot, and extent fill stay in sync without a
+      // global match expression on every layer.
       map.addLayer({
         id: 'carriers-circle',
         type: 'circle',
@@ -333,9 +337,8 @@ function useMapInstance({
           'circle-radius': 10,
           'circle-color': [
             'case',
-            ['get', 'disagreed'],
-            '#ef4444',
-            '#3b82f6',
+            ['get', 'disagreed'], '#ef4444',
+            ['get', 'color'],
           ],
           'circle-stroke-width': [
             'case',
@@ -595,6 +598,19 @@ function useMapInstance({
     }
   }, [clickPoint?.lat, clickPoint?.lon])
 
+  // Per-carrier color resolution. Cluster mode uses the carrier's dominant
+  // ancestry trait — see lib/clusters.ts. Mono mode keeps the legacy single
+  // blue. The map's paint expressions read the resulting `color` property
+  // directly, so we don't need to enumerate the whole palette as a MapLibre
+  // match expression.
+  const colorFor = useCallback(
+    (c: CarrierView): string => {
+      if (carrierColorMode === 'mono') return '#3b82f6'
+      return clusterColor(c)
+    },
+    [carrierColorMode],
+  )
+
   // Update carrier data
   useEffect(() => {
     const map = mapRef.current
@@ -616,6 +632,7 @@ function useMapInstance({
             id: c.id,
             display_name: c.display_name,
             type: c.type,
+            color: colorFor(c),
             disagreed: diffCarrierIds?.has(c.id) ?? false,
             has_endorsement: !!c.endorsement,
             endorsement_stance: c.endorsement?.stance ?? null,
@@ -633,7 +650,7 @@ function useMapInstance({
     // for the lifetime of the map.
     if (map.getSource('carriers')) apply()
     else map.once('load', apply)
-  }, [carriers, diffCarrierIds])
+  }, [carriers, diffCarrierIds, colorFor])
 
   // Update carrier-extents source (fill mode polygons)
   useEffect(() => {
@@ -655,6 +672,7 @@ function useMapInstance({
               id: c.id,
               display_name: c.display_name,
               type: c.type,
+              color: colorFor(c),
               extent_is_real: !!c.extent_is_real,
               disagreed: diffCarrierIds?.has(c.id) ?? false,
             },
@@ -667,7 +685,7 @@ function useMapInstance({
     }
     if (map.getSource('carrier-extents')) apply()
     else map.once('load', apply)
-  }, [carriers, diffCarrierIds])
+  }, [carriers, diffCarrierIds, colorFor])
 
   // Update observations source (pointwise mode)
   useEffect(() => {

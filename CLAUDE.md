@@ -315,6 +315,7 @@ the lifetime of the map, so source existence is the right gate.
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
 | `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |
+| `frontend/src/lib/clusters.ts` | Per-carrier color resolution for the Color: Cluster mode — palette keyed on the dominant ancestry trait (Steppe_MLBA blue, ANI violet, ANATOLIAN_FARMER lime, etc.); fallback hash-palette for unknown trait_ids |
 | `frontend/src/components/Legend.tsx` | Bottom-left legend; swaps content based on vizMode and active paleo features |
 | `frontend/src/components/DetailPanel.tsx` | Right-side carrier panel; renders trait mix + per-perspective claims with stance badges |
 | `frontend/src/components/DiffOverlay.tsx` | `computeDiff` honors `worldData.disagreed_carrier_ids` for claim-level disagreement |

@@ -15,7 +15,7 @@ import {
   useHistoricalPlaces,
   useCarrierLineage,
 } from './hooks/useWorldQuery'
-import type { RenderMode, VizMode, LabelMode, LineageMode } from './state'
+import type { RenderMode, VizMode, LabelMode, LineageMode, CarrierColorMode } from './state'
 
 export default function App() {
   const renderMode = useStore((s) => s.renderMode)
@@ -24,6 +24,8 @@ export default function App() {
   const setVizMode = useStore((s) => s.setVizMode)
   const labelMode = useStore((s) => s.labelMode)
   const setLabelMode = useStore((s) => s.setLabelMode)
+  const carrierColorMode = useStore((s) => s.carrierColorMode)
+  const setCarrierColorMode = useStore((s) => s.setCarrierColorMode)
   const lineageMode = useStore((s) => s.lineageMode)
   const setLineageMode = useStore((s) => s.setLineageMode)
   const lineageAnimating = useStore((s) => s.lineageAnimating)
@@ -127,6 +129,30 @@ export default function App() {
                 }`}
               >
                 {mode === 'single' ? 'Single' : mode === 'side-by-side' ? 'Side by Side' : 'Diff Overlay'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[10px] uppercase tracking-wide text-gray-500"
+            title="Cluster: each carrier dot/extent takes a color from its dominant ancestry trait so populations sharing that ancestry visually group. Mono: legacy single blue."
+          >
+            Color
+          </span>
+          <div className="flex gap-1">
+            {(['cluster', 'mono'] as CarrierColorMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setCarrierColorMode(mode)}
+                className={`text-xs px-2 py-1 rounded transition-colors ${
+                  carrierColorMode === mode
+                    ? 'bg-pink-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+              >
+                {mode === 'cluster' ? 'Cluster' : 'Mono'}
               </button>
             ))}
           </div>

@@ -14,6 +14,18 @@ export type LabelMode = 'modern' | 'historical' | 'none'
  * (descendants), or both/off. Toggleable from the App header. */
 export type LineageMode = 'off' | 'past' | 'future' | 'both'
 
+/** How to color-code carriers on the map.
+ *  - `cluster`: each carrier's dot/extent takes a color from its
+ *    **dominant ancestry trait** (the trait_id with the largest fraction
+ *    in its trait_mix). Two carriers that are mostly ANI take the same
+ *    color, two carriers that are mostly EAST_ASIAN take the same color,
+ *    etc. — surfaces ancestry clusters across the map.
+ *  - `mono`: legacy single-color styling (blue dots, blue extents) — kept
+ *    as an option for screenshots / minimalism.
+ *  Disagreement-red still wins over either when in diff-overlay mode.
+ */
+export type CarrierColorMode = 'cluster' | 'mono'
+
 export interface ClickPoint {
   lat: number
   lon: number
@@ -54,6 +66,9 @@ interface HistorySimState {
    * passes the latest descendant. */
   lineageAnimating: boolean
   setLineageAnimating: (v: boolean) => void
+
+  carrierColorMode: CarrierColorMode
+  setCarrierColorMode: (mode: CarrierColorMode) => void
 }
 
 // Read initial year + perspectives from URL params
@@ -103,6 +118,9 @@ export const useStore = create<HistorySimState>((set) => ({
 
   lineageAnimating: false,
   setLineageAnimating: (v) => set({ lineageAnimating: v }),
+
+  carrierColorMode: 'cluster',
+  setCarrierColorMode: (mode) => set({ carrierColorMode: mode }),
 }))
 
 function updateUrl(changes: { year?: number; perspectives?: string[] }) {

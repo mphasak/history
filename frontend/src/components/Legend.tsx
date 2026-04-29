@@ -1,6 +1,7 @@
 import { useStore } from '../state'
 import { DOMAIN_COLORS } from './Map'
 import type { WorldResponse, PaleoFeature } from '../api'
+import { clusterId, clusterLabel, colorForTraitId } from '../lib/clusters'
 
 const DOMAIN_ORDER = [
   'genetic',
@@ -53,7 +54,32 @@ export function Legend({
     ?.metadata
   const reconstructionMa = deepTimeActive && meta?.time_ma != null ? meta.time_ma : null
   const vizMode = useStore((s) => s.vizMode)
+  const carrierColorMode = useStore((s) => s.carrierColorMode)
   const presentPaleoTypes = new Set(paleoFeatures.filter((p) => p.geometry_geojson).map((p) => p.type))
+
+  // Population clusters actually represented by carriers in view, mapped to
+  // a representative trait_id + display name so the legend uses the human
+  // labels (e.g. "Steppe MLBA") rather than raw IDs.
+  const presentClusters = new Map<string, string>()  // trait_id → display_name
+  if (worldData && carrierColorMode === 'cluster') {
+    for (const v of Object.values(worldData.perspectives)) {
+      for (const c of v.carriers) {
+        const cid = clusterId(c)
+        if (presentClusters.has(cid)) continue
+        // Look up display name from the carrier's own trait_mix (matches the
+        // dominant trait we already picked).
+        const dt = c.trait_mix.find((t) => t.trait_id === cid)
+        presentClusters.set(cid, dt?.display_name ?? cid)
+      }
+    }
+  }
+  // Sort: known traits alphabetically by label, "unknown" last.
+  const clusterRows = Array.from(presentClusters.entries())
+    .sort(([aId, aLabel], [bId, bLabel]) => {
+      if (aId === 'unknown') return 1
+      if (bId === 'unknown') return -1
+      return aLabel.localeCompare(bLabel)
+    })
 
   // Only show legend rows for domains that actually appear in the current data,
   // so the legend doesn't lie about what's on screen.
@@ -122,6 +148,28 @@ export function Legend({
             />
             <span className="text-gray-300">buffered (no extent on file)</span>
           </div>
+        </div>
+      )}
+
+      {clusterRows.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-gray-700">
+          <div
+            className="text-gray-500 uppercase tracking-wide text-[10px] mb-1"
+            title="Each carrier is colored by its dominant ancestry trait (the trait_id with the largest fraction in its trait_mix), so populations carrying the same dominant ancestry render in the same color."
+          >
+            Population clusters
+          </div>
+          <ul className="space-y-1">
+            {clusterRows.map(([id, label]) => (
+              <li key={id} className="flex items-center gap-2">
+                <span
+                  className="inline-block w-3 h-3 rounded-full border border-gray-700"
+                  style={{ background: colorForTraitId(id) }}
+                />
+                <span className="text-gray-300">{clusterLabel(id, label)}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
