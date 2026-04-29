@@ -14,3 +14,5 @@
 - ultra-think DB enrichment sweep: fill in missing photos / ancestry / threats / etc. across all carriers
 - think hard about UI improvements, then ship
 - think hard about data improvements, then ship
+- carrier images: many resolve to maps / coats-of-arms instead of photos of people; refine title overrides so the inspector shows actual people whenever Wikipedia has one. Also surface a "Read on Wikipedia" link in the panel.
+- pair "Threats" with a "Plight" narrative (1-2 paragraphs): everyday life, origin, end.

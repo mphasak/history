@@ -253,6 +253,57 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Linguistic-family traits + assignments to ~50 carriers (Indo-European,
+  # Sino-Tibetan, Niger-Congo / Bantu, Afro-Asiatic, Austronesian,
+  # Dravidian, Turkic, Mongolic, Uralic, Athabaskan, Mayan, Quechuan,
+  # Aymaran, Nahuan, Pama-Nyungan, Iroquoian, Tupian, Khoisan, Papuan,
+  # Austroasiatic). Tag: [AUTO-LING-022].
+  linguistic-traits-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      regional-gap-seed:
+        condition: service_completed_successfully
+      temporal-bridge-seed:
+        condition: service_completed_successfully
+      post-columbian-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/022_seed_linguistic_traits.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
+  # Religion / ideological-tradition traits + era-windowed assignments
+  # (Christianity, Islam, Buddhism, Hinduism, Judaism, Confucianism,
+  # Zoroastrianism, etc.). Captures traditions changing over time via
+  # multiple as_of_year snapshots per carrier. Tag: [AUTO-RELIGION-023].
+  religion-traits-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      regional-gap-seed:
+        condition: service_completed_successfully
+      temporal-bridge-seed:
+        condition: service_completed_successfully
+      post-columbian-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/023_seed_religion_traits.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Hominin / archaic / earliest-sapiens enrichment: trait_ids for
   # archaic hominins, self-traits, and AUTO-PROVENANCE claims for the
   # spreadsheet-origin carriers that previously had no Carrier-level
@@ -503,6 +554,10 @@ services:
       hominin-archaic-seed:
         condition: service_completed_successfully
       gap-threats-seed:
+        condition: service_completed_successfully
+      linguistic-traits-seed:
+        condition: service_completed_successfully
+      religion-traits-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

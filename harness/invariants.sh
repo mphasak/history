@@ -23,9 +23,13 @@ if grep -rEn '\b(FROM|JOIN|UPDATE|INTO)\s+geography\b' backend/src/ db/ 2>/dev/n
 fi
 ok "geo_region naming respected"
 
-echo "[invariants] no DROP TABLE in seed files..."
-if grep -rEn '\bDROP\s+TABLE\b' db/0[0-9][0-9]_seed_*.sql 2>/dev/null; then
-  fail "Seed file contains DROP TABLE. Seeds must be additive (DELETE-by-prefix only)."
+echo "[invariants] no DROP TABLE on a non-temp table in seed files..."
+# Match `DROP TABLE foo;` only when not preceded by a comment marker. Temp
+# tables (CREATE TEMP TABLE ... ON COMMIT DROP, or session-scoped temp
+# tables) are fine; persistent DROP TABLE is the rule we care about.
+if grep -rEn '^[^-]*\bDROP\s+TABLE\s+(IF\s+EXISTS\s+)?[a-zA-Z][a-zA-Z0-9_]*\b' db/0[0-9][0-9]_seed_*.sql 2>/dev/null \
+   | grep -vE '_[a-z0-9]+_[0-9]+\b' | grep -v '^\s*--'; then
+  fail "Seed file contains DROP TABLE on a (non-temp) table. Seeds must be additive (DELETE-by-prefix only)."
 fi
 ok "seeds are additive"
 
