@@ -319,6 +319,19 @@ export const api = {
   admixtureEvents: (year?: number): Promise<{ events: AdmixtureEvent[] }> =>
     get('/admixture-events', { year }),
 
+  admixtureEventsWithCarriers: (): Promise<{
+    events: AdmixtureEvent[]
+    carriers: Record<string, {
+      id: string
+      display_name: string
+      type: string
+      date_min_year: number
+      date_max_year: number
+      centroid: GeoPoint | null
+      dominant_trait: string | null
+    }>
+  }> => get('/admixture-events', { embed_carriers: 'true' }),
+
   carrierClaims: (carrierId: string, perspectives: string[]): Promise<CarrierClaimsResponse> =>
     get(`/carrier/${carrierId}/claims`, {
       perspectives: perspectives.join(',') || undefined,

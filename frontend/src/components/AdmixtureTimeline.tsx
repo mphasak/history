@@ -49,6 +49,7 @@ export function AdmixtureTimeline() {
   const [hover, setHover] = useState<AdmixtureEvent | null>(null)
   const setYear = useStore((s) => s.setYear)
   const setSelectedAdmixtureEventId = useStore((s) => s.setSelectedAdmixtureEventId)
+  const setAdmixtureAtlasOpen = useStore((s) => s.setAdmixtureAtlasOpen)
   const year = useStore((s) => s.year)
 
   useEffect(() => {
@@ -68,9 +69,18 @@ export function AdmixtureTimeline() {
   return (
     <div className="relative bg-gray-950/95 border-t border-b border-gray-800 px-4 py-1.5">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] uppercase tracking-wide text-gray-500">
-          Admixture events — populations meeting and fusing
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] uppercase tracking-wide text-gray-500">
+            Admixture events — populations meeting and fusing
+          </span>
+          <button
+            onClick={() => setAdmixtureAtlasOpen(true)}
+            className="text-[10px] px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300"
+            title="Open the expanded Admixture Atlas — every population on its own row, with curves connecting parents to descendants."
+          >
+            ⤢ Expand atlas
+          </button>
+        </div>
         {hover && (
           <span className="text-[10px] text-gray-400">
             {hover.display_name} · {formatYear(hover.year_min)}–{formatYear(hover.year_max)} ·{' '}

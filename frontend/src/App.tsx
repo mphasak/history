@@ -10,6 +10,7 @@ import { SearchBox } from './components/SearchBox'
 import { YearHeader } from './components/YearHeader'
 import { AdmixtureTimeline } from './components/AdmixtureTimeline'
 import { AdmixtureCard } from './components/AdmixtureCard'
+import { AdmixtureAtlas } from './components/AdmixtureAtlas'
 import { DiffLegend } from './components/DiffOverlay'
 import { Legend } from './components/Legend'
 import {
@@ -350,6 +351,10 @@ export default function App() {
         <AdmixtureTimeline />
         <YearSlider />
       </footer>
+
+      {/* AdmixtureAtlas — full-screen overlay; hidden until user clicks
+          the "Expand atlas" button on the timeline. */}
+      <AdmixtureAtlas />
     </div>
   )
 }

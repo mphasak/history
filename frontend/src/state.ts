@@ -88,6 +88,10 @@ interface HistorySimState {
   /** When non-null, the AdmixtureCard panel is open for this event id. */
   selectedAdmixtureEventId: string | null
   setSelectedAdmixtureEventId: (id: string | null) => void
+
+  /** True when the AdmixtureAtlas (expanded multi-row phylogeny view) is open. */
+  admixtureAtlasOpen: boolean
+  setAdmixtureAtlasOpen: (v: boolean) => void
 }
 
 // Read initial year + perspectives from URL params.
@@ -150,6 +154,9 @@ export const useStore = create<HistorySimState>((set) => ({
 
   selectedAdmixtureEventId: null,
   setSelectedAdmixtureEventId: (id) => set({ selectedAdmixtureEventId: id }),
+
+  admixtureAtlasOpen: false,
+  setAdmixtureAtlasOpen: (v) => set({ admixtureAtlasOpen: v }),
 }))
 
 function updateUrl(changes: { year?: number; perspectives?: string[] }) {

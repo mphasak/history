@@ -14,7 +14,7 @@ from ..models import AdmixtureEvent, AdmixtureEventsResponse, GeoPoint
 router = APIRouter()
 
 
-@router.get("/admixture-events", response_model=AdmixtureEventsResponse)
+@router.get("/admixture-events")
 async def list_admixture_events(
     year: int | None = Query(
         None,
@@ -23,6 +23,16 @@ async def list_admixture_events(
     bbox: str | None = Query(
         None,
         description="Optional W,S,E,N bbox. If set, filter events by centroid containment.",
+    ),
+    embed_carriers: bool = Query(
+        False,
+        description=(
+            "When true, also return a `_carriers` map keyed by carrier_id "
+            "with display_name + date_min_year + date_max_year + centroid + "
+            "dominant trait_id for every carrier referenced in any event's "
+            "parent_carriers / result_carriers. Lets the frontend render the "
+            "expanded Admixture Atlas in a single fetch."
+        ),
     ),
     conn: AsyncConnection = Depends(get_conn),
 ):
@@ -82,4 +92,46 @@ async def list_admixture_events(
             rupture_kind=r["rupture_kind"],
             source_id=r.get("source_id"),
         ))
-    return AdmixtureEventsResponse(events=events)
+    if not embed_carriers:
+        return {"events": [e.model_dump() for e in events]}
+
+    # Bulk-fetch metadata for every carrier referenced. Single SQL.
+    carrier_ids: set[str] = set()
+    for e in events:
+        carrier_ids.update(e.parent_carriers)
+        carrier_ids.update(e.result_carriers)
+    carriers_meta: dict = {}
+    if carrier_ids:
+        rows = await conn.execute(
+            """
+            SELECT c.id, c.display_name, c.type, c.date_min_year, c.date_max_year,
+                   ST_Y(c.centroid::geometry) AS lat,
+                   ST_X(c.centroid::geometry) AS lon,
+                   (SELECT trait_id FROM carrier_trait_mix
+                    WHERE carrier_id = c.id
+                    ORDER BY fraction DESC, trait_id ASC LIMIT 1) AS dominant_trait
+            FROM carrier c
+            WHERE c.id = ANY(%(ids)s::text[])
+            """,
+            {"ids": list(carrier_ids)},
+        )
+        async for r in rows:
+            r = dict(r)
+            carriers_meta[r["id"]] = {
+                "id": r["id"],
+                "display_name": r["display_name"],
+                "type": r["type"],
+                "date_min_year": r["date_min_year"],
+                "date_max_year": r["date_max_year"],
+                "centroid": (
+                    {"lat": float(r["lat"]), "lon": float(r["lon"])}
+                    if r["lat"] is not None else None
+                ),
+                "dominant_trait": r.get("dominant_trait"),
+            }
+
+    # Pydantic AdmixtureEventsResponse doesn't know the side-channel; return a dict.
+    return {
+        "events": [e.model_dump() for e in events],
+        "carriers": carriers_meta,
+    }
