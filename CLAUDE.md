@@ -312,6 +312,7 @@ the lifetime of the map, so source existence is the right gate.
 | `db/008_historical_places.sql` | `historical_place` table + 64 era-appropriate city/region labels keyed by `[date_min_year, date_max_year]` |
 | `db/009_carrier_territory_snapshots.sql` | `carrier_extent_snapshot` table + ~36 territorial polygons that the resolver picks per-year via `LATERAL` lookup |
 | `db/010_seed_holocene_carriers.sql` | 32 early-to-mid Holocene carriers filling regional gaps for ~-7000 to -1500 (`CARR_HIST_HOL_*` prefix) |
+| `db/013_seed_regional_gap_carriers.sql` | 31 region/era gap-fillers (`CARR_HIST_GAP_*` prefix): Andean / Mesoamerican / Caribbean / sub-Saharan / Pacific / Arctic / additional N. American carriers, all cited via DEDUCED_PHASE_0 |
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
 | `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |

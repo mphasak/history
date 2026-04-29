@@ -336,6 +336,41 @@ async def test_carrier_lineage_endpoint_indo_aryan(client):
 
 
 @pytest.mark.asyncio
+async def test_world_includes_regional_gap_filler_carriers(client):
+    """
+    The 013 regional gap-filler seed adds Mali Empire, Teotihuacan, and
+    Polynesian voyagers among others. Verify a couple of these show up
+    when their year window is queried.
+    """
+    # Mali Empire window 1230-1670 → check at year 1400
+    r = await client.get(
+        "/world",
+        params={
+            "year": 1400,
+            "bbox": "-180,-85,180,85",
+            "perspectives": "PERSP_REICH_2018",
+        },
+    )
+    assert r.status_code == 200
+    ids = {c["id"] for c in r.json()["perspectives"]["PERSP_REICH_2018"]["carriers"]}
+    if "CARR_HIST_GAP_MALI_EMPIRE" not in ids:
+        pytest.skip("013 regional-gap seed not applied")
+    assert "CARR_HIST_GAP_MALI_EMPIRE" in ids
+    # Teotihuacan window -100..600 → check at year 400
+    r2 = await client.get(
+        "/world",
+        params={
+            "year": 400,
+            "bbox": "-180,-85,180,85",
+            "perspectives": "PERSP_REICH_2018",
+        },
+    )
+    assert r2.status_code == 200
+    ids2 = {c["id"] for c in r2.json()["perspectives"]["PERSP_REICH_2018"]["carriers"]}
+    assert "CARR_HIST_GAP_TEOTIHUACAN" in ids2
+
+
+@pytest.mark.asyncio
 async def test_carrier_lineage_direction_param(client):
     """direction=past suppresses descendants and vice versa."""
     r = await client.get(

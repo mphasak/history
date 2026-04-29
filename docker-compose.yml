@@ -209,6 +209,33 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Regional gap-fillers (~30 carriers): pre-Inca Andean (Moche/Wari/Tiwanaku),
+  # post-Olmec Mesoamerica (Teotihuacan/Toltec/Zapotec/Mixtec), Caribbean
+  # Taíno, Sub-Saharan medieval/early-modern (Ghana/Mali/Songhai/Great
+  # Zimbabwe/Kongo/Swahili/Asante/Solomonic Ethiopia), Pacific (Lapita/
+  # Polynesian/Māori/Hawaiian), Siberia/Arctic (Yakut/Chukchi/Thule), and
+  # additional North American (Mississippian/Haudenosaunee/Navajo-Apache).
+  # All carry [AUTO-PROVENANCE] claims citing DEDUCED_PHASE_0 (best-effort
+  # editorial summaries — see 006/CLAUDE.md for the convention).
+  # Must run after carriers-seed so the CARR_HIST_GAP_* IDs survive 005's
+  # CARR_HIST_* idempotent wipe.
+  regional-gap-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      carriers-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/013_seed_regional_gap_carriers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Holocene gap-fillers: ~32 additional carriers covering the early-to-mid
   # Holocene (~-7000 to -1000) across all major regions so scrubbing through
   # those years doesn't show only Asia + Oceania (Halaf/Ubaid Mesopotamia,
@@ -285,6 +312,8 @@ services:
       holocene-threats-seed:
         condition: service_completed_successfully
       forager-carriers-seed:
+        condition: service_completed_successfully
+      regional-gap-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim
