@@ -84,6 +84,10 @@ interface HistorySimState {
 
   carrierColorMode: CarrierColorMode
   setCarrierColorMode: (mode: CarrierColorMode) => void
+
+  /** When non-null, the AdmixtureCard panel is open for this event id. */
+  selectedAdmixtureEventId: string | null
+  setSelectedAdmixtureEventId: (id: string | null) => void
 }
 
 // Read initial year + perspectives from URL params.
@@ -143,6 +147,9 @@ export const useStore = create<HistorySimState>((set) => ({
 
   carrierColorMode: 'cluster',
   setCarrierColorMode: (mode) => set({ carrierColorMode: mode }),
+
+  selectedAdmixtureEventId: null,
+  setSelectedAdmixtureEventId: (id) => set({ selectedAdmixtureEventId: id }),
 }))
 
 function updateUrl(changes: { year?: number; perspectives?: string[] }) {

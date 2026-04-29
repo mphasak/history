@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
-import { WorldResponse, CarrierView, TraitObservationView, PaleoFeature, CarrierLineageResponse, PropagationEventView } from '../api'
+import { WorldResponse, CarrierView, TraitObservationView, PaleoFeature, CarrierLineageResponse, PropagationEventView, AdmixtureEvent } from '../api'
 import { useStore } from '../state'
 import { computeDiff } from './DiffOverlay'
 import { clusterColor } from '../lib/clusters'
@@ -86,6 +86,10 @@ interface MapInstanceProps {
   /** Past/future lineage for the selected carrier — drawn as connector lines
    * + amber (past) / cyan (future) endpoint dots. Null when lineage mode is off. */
   lineage?: CarrierLineageResponse | null
+  /** Admixture events whose year window contains the current slider year.
+   * Rendered as glowing centroid markers + arrows from the average parent
+   * carrier centroid to the average result carrier centroid. */
+  activeAdmixtureEvents?: AdmixtureEvent[]
   /** When true, hide the regular `carriers` layer (so the lineage subgraph
    * has the map to itself). */
   lineageActive?: boolean
@@ -112,6 +116,7 @@ function useMapInstance({
   lineage,
   lineageActive,
   onLineageNodeClick,
+  activeAdmixtureEvents,
   diffCarrierIds,
   onCarrierClick,
   onMapClick,
@@ -622,6 +627,75 @@ function useMapInstance({
         minzoom: 2,
       })
 
+      // Admixture overlay — active fusion events. Three layers:
+      //   - admix-arrow: dashed flow line from parent-centroid to result-
+      //     centroid, colored by rupture_kind.
+      //   - admix-halo: a translucent glowing disc at the event centroid,
+      //     size ∝ severity.
+      //   - admix-label: event display_name above the halo.
+      map.addSource('admix-arrows', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'admix-arrows-line',
+        type: 'line',
+        source: 'admix-arrows',
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 3,
+          'line-opacity': 0.85,
+          'line-dasharray': [4, 2],
+        },
+      })
+
+      map.addSource('admix-events', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'admix-events-halo',
+        type: 'circle',
+        source: 'admix-events',
+        paint: {
+          'circle-radius': ['+', 12, ['*', ['get', 'severity'], 4]], // 16-32px
+          'circle-color': ['get', 'color'],
+          'circle-blur': 1.0,
+          'circle-opacity': 0.6,
+        },
+      })
+      map.addLayer({
+        id: 'admix-events-core',
+        type: 'circle',
+        source: 'admix-events',
+        paint: {
+          'circle-radius': ['+', 5, ['get', 'severity']], // 6-10px
+          'circle-color': ['get', 'color'],
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 2,
+          'circle-opacity': 1,
+        },
+      })
+      map.addLayer({
+        id: 'admix-events-label',
+        type: 'symbol',
+        source: 'admix-events',
+        layout: {
+          'text-field': ['get', 'display_name'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 12,
+          'text-offset': [0, 1.6],
+          'text-anchor': 'top',
+          'text-allow-overlap': false,
+          'text-padding': 4,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 2,
+        },
+      })
+
       // Historical place labels (city / region names that match the queried
       // year — e.g. Constantinople from 330 to 1453). Rendered as a symbol
       // layer fed by /historical-places. Visibility tracks labelMode.
@@ -1103,6 +1177,79 @@ function useMapInstance({
     else map.once('load', apply)
   }, [lineage, year])
 
+  // Update admixture-event overlay. For each active event we emit:
+  //   - one event marker at the event's authored centroid (colored by
+  //     rupture_kind, sized by severity);
+  //   - one arrow LineString from the average parent_carrier centroid
+  //     to the average result_carrier centroid. The lookup uses the
+  //     `carriers` prop the map already has — so when the slider year
+  //     is inside Yamnaya-into-Europe (3000-2200 BCE), the arrow runs
+  //     from the Yamnaya centroid to the Corded Ware / Bell Beaker
+  //     centroid.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const eventsSrc = map.getSource('admix-events') as maplibregl.GeoJSONSource | undefined
+      const arrowsSrc = map.getSource('admix-arrows') as maplibregl.GeoJSONSource | undefined
+      if (!eventsSrc || !arrowsSrc) return
+
+      const RUPTURE_COLOR: Record<string, string> = {
+        gradual_blend: '#22c55e',
+        elite_dominance: '#fbbf24',
+        demographic_swamp: '#f97316',
+        violent_replacement: '#ef4444',
+        forced_diaspora: '#a855f7',
+        island_settlement: '#06b6d4',
+      }
+
+      // Carrier centroid lookup (for the arrow endpoints).
+      const centroidById = new Map<string, [number, number]>()
+      for (const c of carriers) {
+        if (c.centroid) centroidById.set(c.id, [c.centroid.lon, c.centroid.lat])
+      }
+      const avgCentroid = (ids: string[]): [number, number] | null => {
+        const pts = ids.map((i) => centroidById.get(i)).filter(Boolean) as [number, number][]
+        if (pts.length === 0) return null
+        const sx = pts.reduce((a, p) => a + p[0], 0) / pts.length
+        const sy = pts.reduce((a, p) => a + p[1], 0) / pts.length
+        return [sx, sy]
+      }
+
+      const events: GeoJSON.Feature[] = []
+      const arrows: GeoJSON.Feature[] = []
+      for (const e of activeAdmixtureEvents ?? []) {
+        const color = RUPTURE_COLOR[e.rupture_kind] ?? '#9ca3af'
+        events.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [e.centroid.lon, e.centroid.lat] },
+          properties: {
+            id: e.id,
+            display_name: e.display_name,
+            severity: e.severity,
+            rupture_kind: e.rupture_kind,
+            color,
+          },
+        })
+
+        const from = avgCentroid(e.parent_carriers)
+        const to = avgCentroid(e.result_carriers)
+        if (from && to) {
+          arrows.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [from, to] },
+            properties: { id: e.id, color },
+          })
+        }
+      }
+
+      eventsSrc.setData({ type: 'FeatureCollection', features: events })
+      arrowsSrc.setData({ type: 'FeatureCollection', features: arrows })
+    }
+    if (map.getSource('admix-events')) apply()
+    else map.once('load', apply)
+  }, [activeAdmixtureEvents, carriers])
+
   // Update historical-places source + visibility together. Same combined
   // pattern as the shelf effect: data and visibility flip in lockstep so
   // toggling the label mode never leaves stale labels on screen.
@@ -1207,6 +1354,7 @@ function SingleMap({
   lineage,
   lineageActive,
   onLineageNodeClick,
+  activeAdmixtureEvents,
   perspectiveId,
   onCarrierClick,
   onMapClick,
@@ -1222,6 +1370,7 @@ function SingleMap({
   lineage: CarrierLineageResponse | null
   lineageActive: boolean
   onLineageNodeClick: (id: string) => void
+  activeAdmixtureEvents: AdmixtureEvent[]
   perspectiveId: string
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -1240,6 +1389,7 @@ function SingleMap({
     lineage,
     lineageActive,
     onLineageNodeClick,
+    activeAdmixtureEvents,
     perspectiveId,
     onCarrierClick,
     onMapClick,
@@ -1262,6 +1412,9 @@ interface MapProps {
   historicalPlaces?: MapInstanceProps['historicalPlaces']
   /** Past/future lineage for the selected carrier — null when off. */
   lineage?: CarrierLineageResponse | null
+  /** Admixture events whose year window covers the slider year. The
+   * map glow uses these to highlight the parent + result carriers. */
+  activeAdmixtureEvents?: AdmixtureEvent[]
 }
 
 export function WorldMap({
@@ -1272,6 +1425,7 @@ export function WorldMap({
   paleoCoastlines = null,
   historicalPlaces = [],
   lineage = null,
+  activeAdmixtureEvents = [],
 }: MapProps) {
   const shelfVisible = (shelfGeojson?.features?.length ?? 0) > 0
   const renderMode = useStore((s) => s.renderMode)
@@ -1350,6 +1504,7 @@ export function WorldMap({
         lineage={lineage}
         lineageActive={lineageActive}
         onLineageNodeClick={handleLineageNodeClick}
+        activeAdmixtureEvents={activeAdmixtureEvents}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
       />
@@ -1378,6 +1533,7 @@ export function WorldMap({
           lineage={lineage}
           lineageActive={lineageActive}
           onLineageNodeClick={handleLineageNodeClick}
+          activeAdmixtureEvents={activeAdmixtureEvents}
           diffIds={diffIds}
           onCarrierClick={handleCarrierClick}
           onMapClick={handleMapClick}
@@ -1405,6 +1561,7 @@ export function WorldMap({
         lineage={lineage}
         lineageActive={lineageActive}
         onLineageNodeClick={handleLineageNodeClick}
+        activeAdmixtureEvents={activeAdmixtureEvents}
         perspectiveId={pid}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
@@ -1424,6 +1581,7 @@ function SideBySideMap({
   lineage,
   lineageActive,
   onLineageNodeClick,
+  activeAdmixtureEvents,
   onCarrierClick,
   onMapClick,
 }: {
@@ -1437,6 +1595,7 @@ function SideBySideMap({
   lineage: CarrierLineageResponse | null
   lineageActive: boolean
   onLineageNodeClick: (id: string) => void
+  activeAdmixtureEvents: AdmixtureEvent[]
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
 }) {
@@ -1461,6 +1620,7 @@ function SideBySideMap({
     lineage,
     lineageActive,
     onLineageNodeClick,
+    activeAdmixtureEvents,
     perspectiveId: leftPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -1481,6 +1641,7 @@ function SideBySideMap({
     lineage,
     lineageActive,
     onLineageNodeClick,
+    activeAdmixtureEvents,
     perspectiveId: rightPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -1524,6 +1685,7 @@ function DiffMapUpdater({
   lineage,
   lineageActive,
   onLineageNodeClick,
+  activeAdmixtureEvents,
   diffIds,
   onCarrierClick,
   onMapClick,
@@ -1539,6 +1701,7 @@ function DiffMapUpdater({
   lineage: CarrierLineageResponse | null
   lineageActive: boolean
   onLineageNodeClick: (id: string) => void
+  activeAdmixtureEvents: AdmixtureEvent[]
   diffIds: Set<string>
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -1556,6 +1719,7 @@ function DiffMapUpdater({
     lineage,
     lineageActive,
     onLineageNodeClick,
+    activeAdmixtureEvents,
     perspectiveId: 'diff',
     diffCarrierIds: diffIds,
     onCarrierClick,

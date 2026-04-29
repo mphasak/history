@@ -8,6 +8,8 @@ import { LineagePreviewPanel } from './components/LineagePreviewPanel'
 import { ClickPointPanel } from './components/ClickPointPanel'
 import { SearchBox } from './components/SearchBox'
 import { YearHeader } from './components/YearHeader'
+import { AdmixtureTimeline } from './components/AdmixtureTimeline'
+import { AdmixtureCard } from './components/AdmixtureCard'
 import { DiffLegend } from './components/DiffOverlay'
 import { Legend } from './components/Legend'
 import {
@@ -17,6 +19,7 @@ import {
   usePaleoCoastlines,
   useHistoricalPlaces,
   useCarrierLineage,
+  useAdmixtureEvents,
 } from './hooks/useWorldQuery'
 import type { RenderMode, VizMode, LabelMode, LineageMode, CarrierColorMode } from './state'
 
@@ -46,6 +49,7 @@ export default function App() {
   const { data: paleoCoastlines } = usePaleoCoastlines()
   const { data: historicalPlaces } = useHistoricalPlaces(labelMode === 'historical')
   const { data: lineage } = useCarrierLineage()
+  const { active: activeAdmixtureEvents } = useAdmixtureEvents()
 
   // Exiting lineage mode (back to 'off') clears any preview node so the
   // DetailPanel returns to the focal carrier cleanly.
@@ -274,6 +278,7 @@ export default function App() {
           paleoCoastlines={paleoCoastlines}
           historicalPlaces={historicalPlaces}
           lineage={lineage}
+          activeAdmixtureEvents={activeAdmixtureEvents}
         />
 
         {/* Perspective picker — top-left overlay */}
@@ -330,10 +335,19 @@ export default function App() {
             <ClickPointPanel />
           </div>
         )}
+
+        {/* Admixture event card — opens when the user clicks a marker
+            on the AdmixtureTimeline. Renders nothing otherwise. */}
+        <div className="absolute top-3 right-3 z-20">
+          <AdmixtureCard />
+        </div>
       </div>
 
-      {/* Footer — year slider */}
+      {/* Footer — admixture timeline + year slider. Timeline goes ABOVE
+          the slider so the markers visually align with the slider thumb
+          (both share the piecewise-log scale via lib/timeScale.ts). */}
       <footer className="shrink-0">
+        <AdmixtureTimeline />
         <YearSlider />
       </footer>
     </div>

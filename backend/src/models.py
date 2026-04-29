@@ -212,6 +212,31 @@ class CarrierTimelineResponse(BaseModel):
     timeline: list[CarrierTimelineSnapshot]
 
 
+class AdmixtureEvent(BaseModel):
+    """A *fusion* event between two or more populations / ghost ancestries.
+    Distinct from `propagation_event` (a *flow*) — admixture captures the
+    moment when ghost populations meet and produce something new (Yamnaya
+    + EEF + WHG → modern Europeans, etc.). Severity is cultural rupture
+    1-5; rupture_kind is a coarse categorical."""
+    id: str
+    display_name: str
+    year_min: int
+    year_max: int
+    centroid: GeoPoint
+    description: str | None
+    parent_traits: list[str] = []
+    result_traits: list[str] = []
+    parent_carriers: list[str] = []
+    result_carriers: list[str] = []
+    severity: int
+    rupture_kind: str
+    source_id: str | None
+
+
+class AdmixtureEventsResponse(BaseModel):
+    events: list[AdmixtureEvent]
+
+
 class CarrierPlight(BaseModel):
     """Editorial 1-2 paragraph narrative covering everyday life, origin,
     and ending for a carrier — pairs with the itemized Threats list to

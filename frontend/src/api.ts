@@ -164,6 +164,29 @@ export interface CarrierThreatsResponse {
   threats: CarrierThreat[]
 }
 
+export interface AdmixtureEvent {
+  id: string
+  display_name: string
+  year_min: number
+  year_max: number
+  centroid: GeoPoint
+  description: string | null
+  parent_traits: string[]
+  result_traits: string[]
+  parent_carriers: string[]
+  result_carriers: string[]
+  /** Cultural rupture, 1 = gradual blend, 5 = mass replacement / forced diaspora. */
+  severity: number
+  rupture_kind:
+    | 'gradual_blend'
+    | 'elite_dominance'
+    | 'demographic_swamp'
+    | 'violent_replacement'
+    | 'forced_diaspora'
+    | 'island_settlement'
+  source_id: string | null
+}
+
 export interface CarrierPlight {
   carrier_id: string
   everyday_life: string
@@ -292,6 +315,9 @@ export const api = {
 
   carrierPlight: (carrierId: string): Promise<CarrierPlight | null> =>
     get(`/carrier/${carrierId}/plight`),
+
+  admixtureEvents: (year?: number): Promise<{ events: AdmixtureEvent[] }> =>
+    get('/admixture-events', { year }),
 
   carrierClaims: (carrierId: string, perspectives: string[]): Promise<CarrierClaimsResponse> =>
     get(`/carrier/${carrierId}/claims`, {

@@ -253,6 +253,31 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Admixture events: 16 fusion moments (OOA × Neanderthal, Bering, Steppe-into-
+  # Europe, Steppe-into-South-Asia, Bantu, Lapita, Han southward, Arab conquests,
+  # Mongols, European colonization, Atlantic slave trade, etc.). Adds the
+  # admixture_event table additively.
+  admixture-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      regional-gap-seed:
+        condition: service_completed_successfully
+      temporal-bridge-seed:
+        condition: service_completed_successfully
+      post-columbian-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/025_seed_admixture_events.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Plight narratives: 1-2 paragraph editorial summary per carrier
   # describing everyday life, origin, and ending. Adds the
   # carrier_plight table additively (CREATE TABLE IF NOT EXISTS).
@@ -585,6 +610,8 @@ services:
       religion-traits-seed:
         condition: service_completed_successfully
       plight-seed:
+        condition: service_completed_successfully
+      admixture-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

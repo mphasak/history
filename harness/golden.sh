@@ -57,6 +57,18 @@ got=$(curl -sf "$API/carrier/CARR_HIST_ROMAN/claims?perspectives=PERSP_REICH_201
 [[ "$got" -ge 1 ]] || fail "Roman [AUTO-PROVENANCE] doesn't cite ANTONIO_2019"
 ok "Roman provenance cites ANTONIO_2019"
 
+echo "[golden] Yamnaya admixture event lights up at -2500..."
+got=$(curl -sf "$API/admixture-events?year=-2500" \
+  | jq -r '.events[].id' | grep -c ADMIX_YAMNAYA_INTO_EUROPE || true)
+[[ "$got" -ge 1 ]] || fail "Yamnaya admixture event not surfaced at -2500 BCE"
+ok "Yamnaya admixture event surfaces at -2500 BCE"
+
+echo "[golden] Atlantic slave trade event lights up at 1700..."
+got=$(curl -sf "$API/admixture-events?year=1700" \
+  | jq -r '.events[].id' | grep -c ADMIX_ATLANTIC_SLAVE_TRADE || true)
+[[ "$got" -ge 1 ]] || fail "Atlantic slave trade not surfaced at 1700 CE"
+ok "Atlantic slave trade event surfaces at 1700 CE"
+
 echo "[golden] Antimeridian-crossing extent doesn't span the globe..."
 ext=$(curl -sf "$API/world?year=1500&bbox=-180,-85,180,85&perspectives=PERSP_REICH_2018" \
   | jq -r '.perspectives.PERSP_REICH_2018.carriers[] | select(.id=="CARR_HIST_GAP_CHUKCHI") | .extent_geojson')

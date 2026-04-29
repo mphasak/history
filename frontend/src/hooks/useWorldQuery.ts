@@ -6,6 +6,7 @@ import {
   PaleoBasemapResponse,
   HistoricalPlace,
   CarrierLineageResponse,
+  AdmixtureEvent,
 } from '../api'
 import { useStore } from '../state'
 
@@ -307,6 +308,30 @@ export function useCarrierLineage(): {
 
   return { data, loading }
 }
+
+/**
+ * All admixture events, fetched once and filtered client-side by year.
+ * The list is small (<50 expected) so caching once is fine; the active
+ * subset (events whose year window covers the slider year) is what the
+ * map glow consumes.
+ */
+export function useAdmixtureEvents(): {
+  all: AdmixtureEvent[]
+  active: AdmixtureEvent[]
+} {
+  const year = useStore((s) => s.year)
+  const [all, setAll] = useState<AdmixtureEvent[]>([])
+  useEffect(() => {
+    let cancelled = false
+    api.admixtureEvents().then((res) => {
+      if (!cancelled) setAll(res.events)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  const active = all.filter((e) => year >= e.year_min && year <= e.year_max)
+  return { all, active }
+}
+
 
 export function usePerspectives(): PerspectivesResult {
   const [perspectives, setPerspectives] = useState<Perspective[]>([])
