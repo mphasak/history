@@ -352,6 +352,7 @@ the lifetime of the map, so source existence is the right gate.
 | `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |
 | `frontend/src/lib/clusters.ts` | Per-carrier color resolution for the Color: Cluster mode — palette keyed on the dominant ancestry trait (Steppe_MLBA blue, ANI violet, ANATOLIAN_FARMER lime, etc.); fallback hash-palette for unknown trait_ids |
+| `frontend/src/lib/migrationRoutes.ts` | Hand-curated routing for lineage connector lines — bends edges through known migration choke points (Bering, Khyber, Levant, Wallacea, SE-Asia coastal route) when endpoints straddle one. Pulse dots interpolate along the resulting polyline. |
 | `frontend/src/components/Legend.tsx` | Bottom-left legend; swaps content based on vizMode and active paleo features |
 | `frontend/src/components/DetailPanel.tsx` | Right-side carrier panel; renders trait mix + per-perspective claims with stance badges; Wikipedia thumbnail + extract at top via `lib/wikipedia.ts` |
 | `frontend/src/lib/wikipedia.ts` | Client-side Wikipedia REST `page/summary` lookup keyed by carrier_id → article title (with display_name fallback). Cached per session. CORS-allowed, no API key required. |

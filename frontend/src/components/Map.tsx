@@ -4,6 +4,7 @@ import { WorldResponse, CarrierView, TraitObservationView, PaleoFeature, Carrier
 import { useStore } from '../state'
 import { computeDiff } from './DiffOverlay'
 import { clusterColor } from '../lib/clusters'
+import { routeBetween, pointAlongPolyline } from '../lib/migrationRoutes'
 
 // Domain → hex color (kept in sync with the legend and DetailPanel TraitBar).
 export const DOMAIN_COLORS: Record<string, string> = {
@@ -1015,13 +1016,6 @@ function useMapInstance({
       // nodes/edges light up — the cast of nodes is stable.
       const isActive = (minY: number, maxY: number) => year >= minY && year <= maxY
 
-      // Linear interpolation between two lng/lat points by t ∈ [0, 1].
-      const lerp = (
-        a: [number, number],
-        b: [number, number],
-        t: number,
-      ): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
-
       if (lineage?.focal && lineage.nodes.length > 0) {
         // Index every node by id so edge endpoints resolve to coordinates
         // without scanning the array per edge.
@@ -1052,6 +1046,12 @@ function useMapInstance({
           if (!a?.centroid || !b?.centroid) continue
           const aLngLat: [number, number] = [a.centroid.lon, a.centroid.lat]
           const bLngLat: [number, number] = [b.centroid.lon, b.centroid.lat]
+          // Route the edge through hand-curated migration waypoints
+          // (Bering, Khyber, Levant, Wallace) where the endpoints
+          // straddle a known crossing — otherwise it stays a straight
+          // 2-point line. See lib/migrationRoutes.ts for the rule set.
+          const polyline = routeBetween(aLngLat, bLngLat)
+
           // Edge is "active" when the year is in the temporal interval
           // between the two endpoints (or when either endpoint is itself
           // active right now). This makes the connectors light up
@@ -1063,7 +1063,7 @@ function useMapInstance({
 
           edges.push({
             type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [aLngLat, bLngLat] },
+            geometry: { type: 'LineString', coordinates: polyline },
             properties: {
               from_id: e.from_id,
               to_id: e.to_id,
@@ -1073,16 +1073,20 @@ function useMapInstance({
             },
           })
 
-          // Pulse position: dot interpolates from the older endpoint
-          // (a.date_max_year) toward the newer endpoint (b.date_min_year)
-          // as the slider year progresses. Outside the interval, dot
-          // sits at the corresponding endpoint.
+          // Pulse position: dot interpolates along the *routed* polyline
+          // from the older endpoint (a.date_max_year) toward the newer
+          // endpoint (b.date_min_year) as the slider year progresses.
+          // Outside the interval, the dot sits at the corresponding
+          // endpoint.
           const t0 = a.date_max_year
           const t1 = Math.max(t0 + 1, b.date_min_year)
           const tNorm = Math.min(1, Math.max(0, (year - t0) / (t1 - t0)))
           pulses.push({
             type: 'Feature',
-            geometry: { type: 'Point', coordinates: lerp(aLngLat, bLngLat, tNorm) },
+            geometry: {
+              type: 'Point',
+              coordinates: pointAlongPolyline(polyline, tNorm),
+            },
             properties: {
               side: e.side,
               edge_id: `${e.from_id}->${e.to_id}`,
