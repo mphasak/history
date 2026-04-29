@@ -311,6 +311,7 @@ the lifetime of the map, so source existence is the right gate.
 | `db/007_carrier_threats.sql` | `carrier_threat` table + `threat_type` enum + 94 seeded threats with year windows and cited claims (`[AUTO-THREAT]`) |
 | `db/008_historical_places.sql` | `historical_place` table + 64 era-appropriate city/region labels keyed by `[date_min_year, date_max_year]` |
 | `db/009_carrier_territory_snapshots.sql` | `carrier_extent_snapshot` table + ~36 territorial polygons that the resolver picks per-year via `LATERAL` lookup |
+| `db/010_seed_holocene_carriers.sql` | 32 early-to-mid Holocene carriers filling regional gaps for ~-7000 to -1500 (`CARR_HIST_HOL_*` prefix) |
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
 | `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |

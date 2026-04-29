@@ -167,6 +167,17 @@ history-simulator/
       peaks; Aztec / Inca / Maya / Khmer / Ottoman / Abbasid /
       Mali / Aksum / Norse / Vedic / Mughal cores; Bay Area
       counties for the modern US carriers).
+    - `holocene-carriers-seed`
+      (`db/010_seed_holocene_carriers.sql`) — 32 early-to-mid
+      Holocene carriers filling the previous coverage gap between
+      ~-7000 and -1500 across all regions (Halaf / Ubaid / Uruk-pre-
+      state Mesopotamia, Predynastic Egypt, Saharan pastoralists,
+      Capsian, Sub-Saharan LSA, Cucuteni-Trypillia, Funnelbeaker /
+      Vinča / Cardial / Atlantic Megalithic, Mehrgarh, Yangshao /
+      Hongshan / Liangzhu / Longshan / Hemudu, Norte Chico, Olmec,
+      Pre-Classic Maya, Chavín, Adena, Hopewell, Archaic North
+      America, Eastern Woodlands Late Archaic, Nok, C-Group
+      Nubian, Kintampo).
 - Read endpoints with Perspective resolution: `/perspectives`,
   `/world` (with `disagreed_carrier_ids` side-channel), `/world/at`,
   `/carrier/{id}/timeline`, `/carrier/{id}/claims`,

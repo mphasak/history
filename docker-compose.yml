@@ -161,6 +161,30 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Holocene gap-fillers: ~32 additional carriers covering the early-to-mid
+  # Holocene (~-7000 to -1000) across all major regions so scrubbing through
+  # those years doesn't show only Asia + Oceania (Halaf/Ubaid Mesopotamia,
+  # Predynastic Egypt, Cucuteni-Trypillia, Yangshao/Liangzhu, Norte Chico,
+  # Olmec, Pre-Classic Maya, Archaic North America, etc.).
+  # Must run after carriers-seed so the CARR_HIST_HOL_* IDs survive 005's
+  # CARR_HIST_* idempotent wipe.
+  holocene-carriers-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      carriers-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/010_seed_holocene_carriers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Provenance: ancestry breakdowns + cited claims for the carriers from 005.
   # Idempotent (DELETE keyed on the [AUTO-PROVENANCE] statement prefix and the
   # CARR_HIST_*/CARR_HOMININ_* trait-mix rows).
@@ -207,6 +231,8 @@ services:
       historical-places-seed:
         condition: service_completed_successfully
       territory-snapshots-seed:
+        condition: service_completed_successfully
+      holocene-carriers-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim
