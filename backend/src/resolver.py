@@ -806,28 +806,138 @@ async def resolve_carrier_threats(
     return threats
 
 
+async def _one_hop_lineage(
+    conn,
+    source_carrier_id: str,
+    source_trait_ids: list[str],
+    source_date_min: int,
+    source_date_max: int,
+    side: str,
+    max_per_hop: int,
+    exclude_ids: list[str],
+) -> list[dict]:
+    """
+    One BFS hop in the lineage graph.
+
+    Given a *source* carrier (already in the graph), find up to `max_per_hop`
+    other carriers that:
+      * share at least one trait_id with the source's trait mix, OR fall
+        within ~3000 km of its centroid (spatial fallback for trait-less
+        carriers);
+      * are temporally before (side='past') or after (side='future') the
+        source;
+      * are not already in `exclude_ids` (the visited set).
+
+    Returns a list of dicts with `id`, `display_name`, `type`, `date_*_year`,
+    `centroid`, `shared_trait_ids` (the traits that bridge this candidate to
+    the *source* — not to the focal).
+    """
+    if side == "past":
+        where_time = "c.date_max_year <= %(src_min)s"
+        order = "has_trait_edge DESC, c.date_max_year DESC"
+    else:
+        where_time = "c.date_min_year >= %(src_max)s"
+        order = "has_trait_edge DESC, c.date_min_year ASC"
+
+    rows = await conn.execute(
+        f"""
+        WITH shared AS (
+            SELECT carrier_id, array_agg(DISTINCT trait_id) AS shared_trait_ids
+            FROM carrier_trait_mix
+            WHERE trait_id = ANY(%(trait_ids)s::text[])
+              AND carrier_id <> %(src_id)s
+            GROUP BY carrier_id
+        ),
+        src_ref AS (
+            SELECT centroid FROM carrier WHERE id = %(src_id)s
+        )
+        SELECT c.id, c.display_name, c.type,
+               c.date_min_year, c.date_max_year,
+               ST_Y(c.centroid::geometry) AS lat,
+               ST_X(c.centroid::geometry) AS lon,
+               COALESCE(s.shared_trait_ids, ARRAY[]::text[]) AS shared_trait_ids,
+               (s.shared_trait_ids IS NOT NULL) AS has_trait_edge
+        FROM carrier c
+        CROSS JOIN src_ref sr
+        LEFT JOIN shared s ON s.carrier_id = c.id
+        WHERE c.id <> %(src_id)s
+          AND NOT (c.id = ANY(%(excluded)s::text[]))
+          AND {where_time}
+          AND (
+            s.shared_trait_ids IS NOT NULL
+            OR (c.centroid IS NOT NULL AND sr.centroid IS NOT NULL
+                AND ST_DWithin(c.centroid, sr.centroid, 3000000))
+          )
+        ORDER BY {order}
+        LIMIT %(lim)s
+        """,
+        {
+            "src_id": source_carrier_id,
+            "trait_ids": source_trait_ids or [],
+            "src_min": source_date_min,
+            "src_max": source_date_max,
+            "excluded": exclude_ids or [],
+            "lim": max_per_hop,
+        },
+    )
+    out = []
+    async for r in rows:
+        r = dict(r)
+        out.append({
+            "id": r["id"],
+            "display_name": r["display_name"],
+            "type": r["type"],
+            "date_min_year": r["date_min_year"],
+            "date_max_year": r["date_max_year"],
+            "centroid": _point(r["lat"], r["lon"]),
+            "shared_trait_ids": list(r.get("shared_trait_ids") or []),
+        })
+    return out
+
+
+async def _carrier_trait_ids(conn, carrier_id: str) -> list[str]:
+    """Distinct trait_ids carried by a carrier across all its mix snapshots."""
+    rows = await conn.execute(
+        "SELECT DISTINCT trait_id FROM carrier_trait_mix WHERE carrier_id = %s",
+        (carrier_id,),
+    )
+    return [r["trait_id"] async for r in rows]
+
+
 async def resolve_carrier_lineage(
     conn,
     carrier_id: str,
     year: int,
     direction: str = "both",
     limit_per_side: int = 12,
+    max_depth: int = 4,
+    max_per_hop: int = 6,
 ) -> dict:
     """
-    Returns ancestor and/or descendant carriers for a given carrier at a year.
+    Returns the multi-hop lineage DAG rooted at `carrier_id`.
 
-    "Ancestor" = a carrier whose date_max_year <= the focal carrier's
-    date_min_year (i.e. it ended before this carrier began) AND that shares at
-    least one trait with the focal carrier's trait mix at `year`. The shared
-    trait is what we read as "fed into."
+    Traversal:
+      * Past direction expands hop-by-hop into temporally older carriers
+        that share trait_ids (or are spatially close) with each frontier
+        node — depth 1 is the focal's direct ancestors, depth 2 is *their*
+        ancestors, and so on.
+      * Future direction is the symmetric forward expansion.
 
-    "Descendant" = the symmetric forward case: date_min_year >= the focal
-    carrier's date_max_year, and shares at least one trait.
+    The result includes:
+      * `focal`: the root carrier (depth=0, side='focal').
+      * `nodes`: every unique carrier encountered, with `depth` (hops from
+        focal) and `side` ('past' | 'future' | 'focal').
+      * `edges`: every (parent → child) hop. For past edges,
+        `from_id` is the older carrier, `to_id` is the newer one; for
+        future edges, vice versa. Edges always point older → newer
+        temporally so the frontend can lay out the graph in time.
+      * `ancestors` / `descendants` (legacy, depth-1 only) for backward
+        compatibility with the original 1-hop response shape.
 
-    Each side is capped at `limit_per_side`, sorted by recency (closest in time
-    to the focal carrier first), so the visualization stays legible.
-
-    `direction` can be 'past', 'future', or 'both'.
+    `max_depth` caps the BFS depth (default 4); `max_per_hop` caps how many
+    new neighbors any single source contributes per hop (default 6). Both
+    bound the graph size — population ancestry graphs converge fast in
+    practice (~30–60 unique nodes at the defaults).
     """
     direction = direction.lower()
     if direction not in {"past", "future", "both"}:
@@ -845,107 +955,106 @@ async def resolve_carrier_lineage(
     )
     focal = await focal_row.fetchone()
     if not focal:
-        return {"focal": None, "ancestors": [], "descendants": []}
+        return {
+            "focal": None, "nodes": [], "edges": [],
+            "ancestors": [], "descendants": [],
+            "max_depth": max_depth,
+        }
     focal = dict(focal)
+    focal_node = {
+        "id": focal["id"],
+        "display_name": focal["display_name"],
+        "type": focal["type"],
+        "date_min_year": focal["date_min_year"],
+        "date_max_year": focal["date_max_year"],
+        "centroid": _point(focal["lat"], focal["lon"]),
+        "shared_trait_ids": [],
+        "depth": 0,
+        "side": "focal",
+    }
+    nodes: list[dict] = [focal_node]
+    edges: list[dict] = []
+    visited: set[str] = {focal["id"]}
+    # Per-carrier trait_ids cache so we don't re-fetch within a BFS.
+    trait_cache: dict[str, list[str]] = {focal["id"]: await _carrier_trait_ids(conn, focal["id"])}
+    # Per-carrier date bounds cache (frontier carriers need them for the
+    # temporal predicate without re-querying).
+    bounds: dict[str, tuple[int, int]] = {
+        focal["id"]: (focal["date_min_year"], focal["date_max_year"])
+    }
 
-    # Pull every trait the focal carrier carries across all its mix snapshots.
-    # We don't restrict to as_of_year <= year here — many seeded carriers have
-    # a single mix snapshot near the midpoint of their lifespan, which would
-    # otherwise yield no shared-trait edges for queries earlier than that
-    # snapshot. The lineage view is about *which traits this carrier is known
-    # to carry*, not "what was it carrying yet at exactly year Y."
-    trait_rows = await conn.execute(
-        """
-        SELECT DISTINCT trait_id
-        FROM carrier_trait_mix
-        WHERE carrier_id = %(cid)s
-        """,
-        {"cid": carrier_id},
-    )
-    focal_trait_ids = [r["trait_id"] async for r in trait_rows]
+    async def _bfs(side: str) -> list[dict]:
+        """Run the BFS for one side and return depth-1 nodes for the legacy
+        `ancestors` / `descendants` arrays."""
+        depth_one: list[dict] = []
+        frontier: list[str] = [focal["id"]]
+        for depth in range(1, max_depth + 1):
+            next_frontier: list[str] = []
+            for src_id in frontier:
+                src_min, src_max = bounds[src_id]
+                src_traits = trait_cache.get(src_id) or []
+                if not src_traits:
+                    src_traits = await _carrier_trait_ids(conn, src_id)
+                    trait_cache[src_id] = src_traits
+                neighbors = await _one_hop_lineage(
+                    conn,
+                    source_carrier_id=src_id,
+                    source_trait_ids=src_traits,
+                    source_date_min=src_min,
+                    source_date_max=src_max,
+                    side=side,
+                    max_per_hop=max_per_hop,
+                    exclude_ids=list(visited),
+                )
+                for nb in neighbors:
+                    # Edges are always older → newer temporally; for past
+                    # hops the *neighbor* is older than the source, for
+                    # future hops the *source* is older than the neighbor.
+                    if side == "past":
+                        edges.append({
+                            "from_id": nb["id"],
+                            "to_id": src_id,
+                            "side": "past",
+                            "shared_trait_ids": nb["shared_trait_ids"],
+                        })
+                    else:
+                        edges.append({
+                            "from_id": src_id,
+                            "to_id": nb["id"],
+                            "side": "future",
+                            "shared_trait_ids": nb["shared_trait_ids"],
+                        })
 
-    async def _related(side: str) -> list[dict]:
-        # side = "past" → carriers ending at-or-before focal began
-        # side = "future" → carriers starting at-or-after focal ended
-        # Edge rule: include a candidate when EITHER (a) it shares a trait_id
-        # with the focal carrier's mix, OR (b) it's within ~3000 km of the
-        # focal's centroid. The OR keeps isolated regional ancestors in the
-        # picture even when no explicit trait edge is recorded
-        # (trait_relation is sparse — many regional carriers carry novel
-        # ancestry components rather than the focal's exact components).
-        if side == "past":
-            where_time = "c.date_max_year <= %(focal_min)s"
-            order = "c.date_max_year DESC"
-        else:
-            where_time = "c.date_min_year >= %(focal_max)s"
-            order = "c.date_min_year ASC"
-        rows = await conn.execute(
-            f"""
-            WITH shared AS (
-                SELECT carrier_id, array_agg(DISTINCT trait_id) AS shared_trait_ids
-                FROM carrier_trait_mix
-                WHERE trait_id = ANY(%(trait_ids)s::text[])
-                  AND carrier_id <> %(cid)s
-                GROUP BY carrier_id
-            ),
-            focal_ref AS (
-                SELECT centroid FROM carrier WHERE id = %(cid)s
-            )
-            SELECT c.id, c.display_name, c.type,
-                   c.date_min_year, c.date_max_year,
-                   ST_Y(c.centroid::geometry) AS lat,
-                   ST_X(c.centroid::geometry) AS lon,
-                   COALESCE(s.shared_trait_ids, ARRAY[]::text[]) AS shared_trait_ids,
-                   (s.shared_trait_ids IS NOT NULL) AS has_trait_edge
-            FROM carrier c
-            CROSS JOIN focal_ref f
-            LEFT JOIN shared s ON s.carrier_id = c.id
-            WHERE c.id <> %(cid)s
-              AND {where_time}
-              AND (
-                s.shared_trait_ids IS NOT NULL
-                OR (c.centroid IS NOT NULL AND f.centroid IS NOT NULL
-                    AND ST_DWithin(c.centroid, f.centroid, 3000000))
-              )
-            ORDER BY has_trait_edge DESC, {order}
-            LIMIT %(lim)s
-            """,
-            {
-                "cid": carrier_id,
-                "trait_ids": focal_trait_ids or [],
-                "focal_min": focal["date_min_year"],
-                "focal_max": focal["date_max_year"],
-                "lim": limit_per_side,
-            },
-        )
-        out = []
-        async for r in rows:
-            r = dict(r)
-            out.append({
-                "id": r["id"],
-                "display_name": r["display_name"],
-                "type": r["type"],
-                "date_min_year": r["date_min_year"],
-                "date_max_year": r["date_max_year"],
-                "centroid": _point(r["lat"], r["lon"]),
-                "shared_trait_ids": r.get("shared_trait_ids") or [],
-            })
-        return out
+                    if nb["id"] in visited:
+                        continue
+                    visited.add(nb["id"])
+                    bounds[nb["id"]] = (nb["date_min_year"], nb["date_max_year"])
+                    node = {**nb, "depth": depth, "side": side}
+                    nodes.append(node)
+                    next_frontier.append(nb["id"])
+                    if depth == 1:
+                        depth_one.append(nb)
+            frontier = next_frontier
+            if not frontier:
+                break
+        return depth_one
 
-    ancestors = await _related("past") if direction in {"past", "both"} else []
-    descendants = await _related("future") if direction in {"future", "both"} else []
+    # honor `limit_per_side` by slicing the depth-1 output (kept for
+    # backward compat with the prior 1-hop callers).
+    ancestors_d1: list[dict] = []
+    descendants_d1: list[dict] = []
+    if direction in {"past", "both"}:
+        ancestors_d1 = (await _bfs("past"))[:limit_per_side]
+    if direction in {"future", "both"}:
+        descendants_d1 = (await _bfs("future"))[:limit_per_side]
 
     return {
-        "focal": {
-            "id": focal["id"],
-            "display_name": focal["display_name"],
-            "type": focal["type"],
-            "date_min_year": focal["date_min_year"],
-            "date_max_year": focal["date_max_year"],
-            "centroid": _point(focal["lat"], focal["lon"]),
-        },
-        "ancestors": ancestors,
-        "descendants": descendants,
+        "focal": focal_node,
+        "nodes": nodes,
+        "edges": edges,
+        "ancestors": ancestors_d1,
+        "descendants": descendants_d1,
+        "max_depth": max_depth,
     }
 
 

@@ -186,8 +186,19 @@ export interface CarrierLineageNode {
   date_min_year: number
   date_max_year: number
   centroid: GeoPoint | null
-  /** trait_ids that bridge this node to the focal carrier; empty when the node
-   * was matched via the spatial-fallback (focal had no recorded traits). */
+  /** trait_ids bridging this node to the BFS source (the parent in the graph). */
+  shared_trait_ids: string[]
+  /** 0 = focal, 1 = direct ancestor/descendant, 2+ = deeper hops. */
+  depth: number
+  /** 'focal' | 'past' | 'future' — which side of the BFS this node lives on. */
+  side: 'focal' | 'past' | 'future'
+}
+
+export interface CarrierLineageEdge {
+  /** Older endpoint of the edge (always temporally older than to_id). */
+  from_id: string
+  to_id: string
+  side: 'past' | 'future'
   shared_trait_ids: string[]
 }
 
@@ -195,8 +206,16 @@ export interface CarrierLineageResponse {
   carrier_id: string
   year: number
   direction: 'past' | 'future' | 'both'
+  /** BFS hop cap that produced this graph. */
+  max_depth: number
   focal: CarrierLineageNode | null
+  /** Every unique carrier in the multi-hop graph (focal + reachable). */
+  nodes: CarrierLineageNode[]
+  /** Every (parent → child) hop, oriented older → newer temporally. */
+  edges: CarrierLineageEdge[]
+  /** Direct ancestors only (depth=1, side='past'). Backward compat. */
   ancestors: CarrierLineageNode[]
+  /** Direct descendants only (depth=1, side='future'). Backward compat. */
   descendants: CarrierLineageNode[]
 }
 
@@ -257,9 +276,15 @@ export const api = {
     carrierId: string,
     year: number,
     direction: 'past' | 'future' | 'both' = 'both',
-    limitPerSide = 12,
+    opts: { limitPerSide?: number; maxDepth?: number; maxPerHop?: number } = {},
   ): Promise<CarrierLineageResponse> =>
-    get(`/carrier/${carrierId}/lineage`, { year, direction, limit_per_side: limitPerSide }),
+    get(`/carrier/${carrierId}/lineage`, {
+      year,
+      direction,
+      limit_per_side: opts.limitPerSide ?? 12,
+      max_depth: opts.maxDepth ?? 4,
+      max_per_hop: opts.maxPerHop ?? 6,
+    }),
 
   historicalPlaces: (year: number): Promise<HistoricalPlacesResponse> =>
     get('/historical-places', { year }),

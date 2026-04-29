@@ -281,7 +281,12 @@ export function useCarrierLineage(): {
     // subsequent year changes.
     const anchorYear = year
     api
-      .carrierLineage(carrierId, anchorYear, lineageMode)
+      .carrierLineage(carrierId, anchorYear, lineageMode, {
+        // Multi-hop default — lets the user trace e.g. modern-US back
+        // through European Bronze Age and OOA to Neanderthal.
+        maxDepth: 5,
+        maxPerHop: 5,
+      })
       .then((res) => {
         if (!cancelled) {
           setData(res)

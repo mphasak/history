@@ -4,6 +4,7 @@ import { WorldMap } from './components/Map'
 import { YearSlider } from './components/YearSlider'
 import { PerspectivePicker } from './components/PerspectivePicker'
 import { DetailPanel } from './components/DetailPanel'
+import { LineagePreviewPanel } from './components/LineagePreviewPanel'
 import { ClickPointPanel } from './components/ClickPointPanel'
 import { DiffLegend } from './components/DiffOverlay'
 import { Legend } from './components/Legend'
@@ -30,6 +31,7 @@ export default function App() {
   const setLineageMode = useStore((s) => s.setLineageMode)
   const lineageAnimating = useStore((s) => s.lineageAnimating)
   const setLineageAnimating = useStore((s) => s.setLineageAnimating)
+  const setLineagePreviewCarrierId = useStore((s) => s.setLineagePreviewCarrierId)
   const year = useStore((s) => s.year)
   const setYear = useStore((s) => s.setYear)
   const selectedCarrierId = useStore((s) => s.selectedCarrierId)
@@ -42,6 +44,12 @@ export default function App() {
   const { data: paleoCoastlines } = usePaleoCoastlines()
   const { data: historicalPlaces } = useHistoricalPlaces(labelMode === 'historical')
   const { data: lineage } = useCarrierLineage()
+
+  // Exiting lineage mode (back to 'off') clears any preview node so the
+  // DetailPanel returns to the focal carrier cleanly.
+  useEffect(() => {
+    if (lineageMode === 'off') setLineagePreviewCarrierId(null)
+  }, [lineageMode, setLineagePreviewCarrierId])
 
   // Lineage animation: when toggled on, advance the year slider so the user
   // sees ancestors fade in then out, the focal carrier light up, and
@@ -294,6 +302,15 @@ export default function App() {
         {selectedCarrierId && (
           <div className="absolute top-3 right-3 z-10 max-h-[calc(100vh-8rem)] overflow-y-auto">
             <DetailPanel />
+          </div>
+        )}
+
+        {/* Lineage preview — second column on the right when the user
+            inspects a non-focal node. Renders nothing when lineage is off
+            or no preview is set, so it doesn't compete for space normally. */}
+        {selectedCarrierId && lineageMode !== 'off' && (
+          <div className="absolute top-3 right-[22rem] z-10 max-h-[calc(100vh-8rem)] overflow-y-auto">
+            <LineagePreviewPanel />
           </div>
         )}
 

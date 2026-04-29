@@ -14,6 +14,7 @@ from ..models import (
     CarrierThreat,
     CarrierLineageResponse,
     CarrierLineageNode,
+    CarrierLineageEdge,
     GeoPoint,
 )
 from ..resolver import (
@@ -169,6 +170,14 @@ async def get_carrier_lineage(
         "both", description="Which side(s) to return: past | future | both."
     ),
     limit_per_side: int = Query(12, ge=1, le=50),
+    max_depth: int = Query(
+        4, ge=1, le=8,
+        description="Hops to expand the BFS — 1 is direct ancestors/descendants, 4+ traces back through multiple feeder populations.",
+    ),
+    max_per_hop: int = Query(
+        6, ge=1, le=12,
+        description="Max new neighbors per source carrier per hop (caps graph fan-out).",
+    ),
     conn: AsyncConnection = Depends(get_conn),
 ):
     row = await conn.execute("SELECT id FROM carrier WHERE id = %s", (carrier_id,))
@@ -178,7 +187,11 @@ async def get_carrier_lineage(
         raise HTTPException(400, "direction must be past|future|both")
 
     raw = await resolve_carrier_lineage(
-        conn, carrier_id, year, direction=direction.lower(), limit_per_side=limit_per_side
+        conn, carrier_id, year,
+        direction=direction.lower(),
+        limit_per_side=limit_per_side,
+        max_depth=max_depth,
+        max_per_hop=max_per_hop,
     )
 
     def _node(n: dict) -> CarrierLineageNode:
@@ -190,13 +203,26 @@ async def get_carrier_lineage(
             date_max_year=n["date_max_year"],
             centroid=GeoPoint(**n["centroid"]) if n.get("centroid") else None,
             shared_trait_ids=n.get("shared_trait_ids") or [],
+            depth=int(n.get("depth", 0)),
+            side=n.get("side", "focal"),
+        )
+
+    def _edge(e: dict) -> CarrierLineageEdge:
+        return CarrierLineageEdge(
+            from_id=e["from_id"],
+            to_id=e["to_id"],
+            side=e["side"],
+            shared_trait_ids=e.get("shared_trait_ids") or [],
         )
 
     return CarrierLineageResponse(
         carrier_id=carrier_id,
         year=year,
         direction=direction.lower(),
+        max_depth=int(raw.get("max_depth", max_depth)),
         focal=_node(raw["focal"]) if raw.get("focal") else None,
+        nodes=[_node(n) for n in raw.get("nodes", [])],
+        edges=[_edge(e) for e in raw.get("edges", [])],
         ancestors=[_node(n) for n in raw.get("ancestors", [])],
         descendants=[_node(n) for n in raw.get("descendants", [])],
     )

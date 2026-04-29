@@ -75,6 +75,13 @@ interface HistorySimState {
   lineageAnimating: boolean
   setLineageAnimating: (v: boolean) => void
 
+  /** While in lineage mode the focal carrier is locked — clicking other
+   * carriers/nodes opens a non-destructive *preview* in the right panel
+   * instead of replacing `selectedCarrierId`. Cleared when lineage mode
+   * exits or the user clicks the focal again. */
+  lineagePreviewCarrierId: string | null
+  setLineagePreviewCarrierId: (id: string | null) => void
+
   carrierColorMode: CarrierColorMode
   setCarrierColorMode: (mode: CarrierColorMode) => void
 }
@@ -130,6 +137,9 @@ export const useStore = create<HistorySimState>((set) => ({
 
   lineageAnimating: false,
   setLineageAnimating: (v) => set({ lineageAnimating: v }),
+
+  lineagePreviewCarrierId: null,
+  setLineagePreviewCarrierId: (id) => set({ lineagePreviewCarrierId: id }),
 
   carrierColorMode: 'cluster',
   setCarrierColorMode: (mode) => set({ carrierColorMode: mode }),

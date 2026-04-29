@@ -151,6 +151,24 @@ ice sheets, where sea-level + bathymetry doesn't apply. A snapshot with
 `/paleo-basemap` endpoint uses `DISTINCT ON (feature_id) ... ORDER BY feature_id,
 as_of_year DESC` so the NULL row wins for years past disappearance.
 
+### Lineage mode is a map-wide mode, not just an overlay
+
+When `lineageMode !== 'off'` and a carrier is selected, lineage mode
+*locks*: the regular `carriers` and `carrier-extents` layers hide so the
+multi-hop subgraph owns the map, and clicks on lineage nodes set
+`lineagePreviewCarrierId` instead of `selectedCarrierId`. The focal
+carrier only changes when the user exits lineage mode (Lineage → Off).
+
+The `/carrier/{id}/lineage` endpoint returns a multi-hop BFS:
+`nodes[]` (every reachable carrier with `depth` + `side`) and `edges[]`
+(parent→child hops, oriented older → newer temporally). The frontend
+draws every edge as a halo+core line with a per-edge pulse dot that
+slides along the edge based on the slider year — so scrubbing the year
+visibly shows ancestors flowing into intermediates flowing into the
+focal, and onward into descendants. Default depth is 5, default
+per-hop fan-out 5 — enough to trace e.g. Rural-South-US → European
+Bronze Age → Mesolithic → OOA → Neanderthal in one graph.
+
 ### Defaults
 
 The app loads with a single default state:
@@ -315,7 +333,7 @@ the lifetime of the map, so source existence is the right gate.
 | `backend/src/perspectives.py` | `GET /perspectives` endpoint |
 | `backend/src/routes/world.py` | `GET /world` (with `disagreed_carrier_ids`) + `GET /world/at` |
 | `backend/src/routes/basemap.py` | `GET /paleo-basemap` — paleo feature polygons + interpolated sea level / temp anomaly |
-| `backend/src/routes/carrier.py` | `GET /carrier/{id}/timeline`, `/claims`, `/threats`, and `/lineage` (past + future ancestor/descendant carriers) |
+| `backend/src/routes/carrier.py` | `GET /carrier/{id}/timeline`, `/claims`, `/threats`, and `/lineage` (multi-hop BFS DAG of past/future feeders, with `max_depth` + `max_per_hop` knobs) |
 | `backend/src/routes/claim.py` | `GET /claim/:id` — per-Perspective claim stances |
 | `backend/src/routes/gplates.py` | `GET /paleo-coastlines` — proxied GPlates for deep time |
 | `db/001_schema.sql` | Full DDL (generated from schema_v0.3.md) |
@@ -329,6 +347,7 @@ the lifetime of the map, so source existence is the right gate.
 | `db/010_seed_holocene_carriers.sql` | 32 early-to-mid Holocene carriers filling regional gaps for ~-7000 to -1500 (`CARR_HIST_HOL_*` prefix) |
 | `db/013_seed_regional_gap_carriers.sql` | 31 region/era gap-fillers (`CARR_HIST_GAP_*` prefix): Andean / Mesoamerican / Caribbean / sub-Saharan / Pacific / Arctic / additional N. American carriers, all cited via DEDUCED_PHASE_0 |
 | `db/014_seed_missing_trait_mixes.sql` | Editorial best-effort ancestry compositions for the 93 carriers from 010/012/013 that lacked trait_mix; tagged `[AUTO-TRAITMIX-014]`, cited via DEDUCED_PHASE_0 |
+| `db/015_seed_modern_us_trait_mixes.sql` | Modern-US trait_mix for `CARR_RURAL_SOUTH_US_2025` + `CARR_SF_BAY_AREA_2025` so the multi-hop lineage BFS can trace back through European Bronze Age / OOA to Neanderthal; tagged `[AUTO-TRAITMIX-015]` |
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
 | `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |

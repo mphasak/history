@@ -85,6 +85,12 @@ interface MapInstanceProps {
   /** Past/future lineage for the selected carrier — drawn as connector lines
    * + amber (past) / cyan (future) endpoint dots. Null when lineage mode is off. */
   lineage?: CarrierLineageResponse | null
+  /** When true, hide the regular `carriers` layer (so the lineage subgraph
+   * has the map to itself). */
+  lineageActive?: boolean
+  /** Click handler for nodes in the lineage graph. In lineage mode this
+   * should set a preview state without touching the focal carrier. */
+  onLineageNodeClick?: (carrierId: string) => void
   perspectiveId: string
   diffCarrierIds?: Set<string>
   onCarrierClick: (carrierId: string) => void
@@ -103,6 +109,8 @@ function useMapInstance({
   paleoCoastlines,
   historicalPlaces,
   lineage,
+  lineageActive,
+  onLineageNodeClick,
   diffCarrierIds,
   onCarrierClick,
   onMapClick,
@@ -112,6 +120,8 @@ function useMapInstance({
   const syncingRef = useRef(false)
   const onMapClickRef = useRef(onMapClick)
   useEffect(() => { onMapClickRef.current = onMapClick }, [onMapClick])
+  const onLineageNodeClickRef = useRef(onLineageNodeClick)
+  useEffect(() => { onLineageNodeClickRef.current = onLineageNodeClick }, [onLineageNodeClick])
   const clickPoint = useStore((s) => s.clickPoint)
   const clickMarkerRef = useRef<maplibregl.Marker | null>(null)
   const vizMode = useStore((s) => s.vizMode)
@@ -385,6 +395,17 @@ function useMapInstance({
       })
 
       map.on('click', (e) => {
+        // Order matters: in lineage mode the lineage-nodes layer is on top
+        // and clicking it should preview that node, not reselect the focal
+        // carrier (the focal is locked while lineage mode is active —
+        // exiting lineage mode is the only way to change it).
+        const lineageHits = map.queryRenderedFeatures(e.point, {
+          layers: ['lineage-nodes-circle'],
+        })
+        if (lineageHits.length > 0 && lineageHits[0].properties?.id) {
+          onLineageNodeClickRef.current?.(lineageHits[0].properties.id as string)
+          return
+        }
         const hits = map.queryRenderedFeatures(e.point, {
           layers: ['carriers-circle'],
         })
@@ -552,8 +573,12 @@ function useMapInstance({
         type: 'circle',
         source: 'lineage-nodes',
         paint: {
+          // Focal carrier sits at the center of the graph and renders bigger
+          // so the user can always pick it out; deeper hops shrink slightly.
           'circle-radius': [
-            'case', ['==', ['get', 'role'], 'focal'], 11, 7,
+            'case',
+            ['==', ['get', 'role'], 'focal'], 13,
+            ['interpolate', ['linear'], ['get', 'depth'], 1, 8, 5, 5],
           ],
           'circle-color': [
             'match', ['get', 'role'],
@@ -563,12 +588,14 @@ function useMapInstance({
             '#9ca3af',
           ],
           'circle-stroke-color': '#0f172a',
-          'circle-stroke-width': 2,
+          'circle-stroke-width': [
+            'case', ['==', ['get', 'role'], 'focal'], 3, 2,
+          ],
           // Active nodes (alive at the current year) glow at full opacity;
           // inactive nodes ghost out so the user can watch them light up in
           // sequence as the year animates forward.
           'circle-opacity': [
-            'case', ['==', ['get', 'active'], true], 0.95, 0.25,
+            'case', ['==', ['get', 'active'], true], 0.95, 0.30,
           ],
         },
       })
@@ -638,7 +665,10 @@ function useMapInstance({
         },
       })
 
-      // Apply initial viz mode visibility once layers exist
+      // Apply initial viz mode visibility once layers exist. Lineage active
+      // state is read from the prop on each render; at init time we just
+      // honor vizMode — the dedicated visibility effect above handles
+      // subsequent mode/lineage toggles.
       const v = vizModeRef.current
       const fillVis = v === 'fill' ? 'visible' : 'none'
       const pointVis = v === 'pointwise' ? 'visible' : 'none'
@@ -978,110 +1008,89 @@ function useMapInstance({
       const edges: GeoJSON.Feature[] = []
       const nodes: GeoJSON.Feature[] = []
       const pulses: GeoJSON.Feature[] = []
+
       // A node/edge is "active" when its carrier's date range covers the
       // current year. The lineage anchor itself stays fixed (see
       // useCarrierLineage), so toggling animation just changes which
-      // ancestors/descendants light up — the cast of nodes is stable.
+      // nodes/edges light up — the cast of nodes is stable.
       const isActive = (minY: number, maxY: number) => year >= minY && year <= maxY
 
       // Linear interpolation between two lng/lat points by t ∈ [0, 1].
-      // For continent-scale connectors plain linear is fine (the visual
-      // is "a particle is moving along this edge", not great-circle
-      // navigation precision).
       const lerp = (
         a: [number, number],
         b: [number, number],
         t: number,
       ): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
 
-      if (lineage?.focal?.centroid) {
-        const f = lineage.focal
-        const focalActive = isActive(f.date_min_year, f.date_max_year)
-        nodes.push({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [f.centroid!.lon, f.centroid!.lat] },
-          properties: {
-            id: f.id,
-            display_name: f.display_name,
-            role: 'focal',
-            active: focalActive,
-          },
-        })
-        const focalLngLat: [number, number] = [f.centroid!.lon, f.centroid!.lat]
-        for (const a of lineage.ancestors) {
-          if (!a.centroid) continue
-          const active = isActive(a.date_min_year, a.date_max_year)
-          const ancestorLngLat: [number, number] = [a.centroid.lon, a.centroid.lat]
-          edges.push({
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [ancestorLngLat, focalLngLat] },
-            properties: {
-              side: 'past',
-              id: a.id,
-              shared: a.shared_trait_ids.join(','),
-              active,
-            },
-          })
+      if (lineage?.focal && lineage.nodes.length > 0) {
+        // Index every node by id so edge endpoints resolve to coordinates
+        // without scanning the array per edge.
+        const nodesById = new Map(lineage.nodes.map((n) => [n.id, n]))
+
+        for (const n of lineage.nodes) {
+          if (!n.centroid) continue
+          const active = isActive(n.date_min_year, n.date_max_year)
           nodes.push({
             type: 'Feature',
-            geometry: { type: 'Point', coordinates: ancestorLngLat },
+            geometry: { type: 'Point', coordinates: [n.centroid.lon, n.centroid.lat] },
             properties: {
-              id: a.id,
-              display_name: a.display_name,
-              role: 'past',
-              date_max_year: a.date_max_year,
+              id: n.id,
+              display_name: n.display_name,
+              role: n.side, // 'focal' | 'past' | 'future'
+              depth: n.depth,
+              date_min_year: n.date_min_year,
+              date_max_year: n.date_max_year,
               active,
+              is_focal: n.id === lineage.focal!.id,
             },
-          })
-          // Past-edge pulse: travels from ancestor → focal as years progress
-          // from a.date_max_year (ancestor's end) to f.date_min_year (focal's
-          // start). Outside that interval, clamp to one of the endpoints.
-          const t0 = a.date_max_year
-          const t1 = Math.max(t0 + 1, f.date_min_year)
-          const tNorm = Math.min(1, Math.max(0, (year - t0) / (t1 - t0)))
-          pulses.push({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: lerp(ancestorLngLat, focalLngLat, tNorm) },
-            properties: { side: 'past', edge_id: `past:${a.id}` },
           })
         }
-        for (const d of lineage.descendants) {
-          if (!d.centroid) continue
-          const active = isActive(d.date_min_year, d.date_max_year)
-          const descendantLngLat: [number, number] = [d.centroid.lon, d.centroid.lat]
+
+        for (const e of lineage.edges) {
+          const a = nodesById.get(e.from_id)
+          const b = nodesById.get(e.to_id)
+          if (!a?.centroid || !b?.centroid) continue
+          const aLngLat: [number, number] = [a.centroid.lon, a.centroid.lat]
+          const bLngLat: [number, number] = [b.centroid.lon, b.centroid.lat]
+          // Edge is "active" when the year is in the temporal interval
+          // between the two endpoints (or when either endpoint is itself
+          // active right now). This makes the connectors light up
+          // continuously through the animation.
+          const edgeActive =
+            isActive(a.date_min_year, a.date_max_year) ||
+            isActive(b.date_min_year, b.date_max_year) ||
+            (year >= a.date_max_year && year <= b.date_min_year)
+
           edges.push({
             type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [focalLngLat, descendantLngLat] },
+            geometry: { type: 'LineString', coordinates: [aLngLat, bLngLat] },
             properties: {
-              side: 'future',
-              id: d.id,
-              shared: d.shared_trait_ids.join(','),
-              active,
+              from_id: e.from_id,
+              to_id: e.to_id,
+              side: e.side,
+              shared: e.shared_trait_ids.join(','),
+              active: edgeActive,
             },
           })
-          nodes.push({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: descendantLngLat },
-            properties: {
-              id: d.id,
-              display_name: d.display_name,
-              role: 'future',
-              date_min_year: d.date_min_year,
-              active,
-            },
-          })
-          // Future-edge pulse: focal → descendant as years progress from
-          // focal.date_max_year to d.date_min_year.
-          const t0 = f.date_max_year
-          const t1 = Math.max(t0 + 1, d.date_min_year)
+
+          // Pulse position: dot interpolates from the older endpoint
+          // (a.date_max_year) toward the newer endpoint (b.date_min_year)
+          // as the slider year progresses. Outside the interval, dot
+          // sits at the corresponding endpoint.
+          const t0 = a.date_max_year
+          const t1 = Math.max(t0 + 1, b.date_min_year)
           const tNorm = Math.min(1, Math.max(0, (year - t0) / (t1 - t0)))
           pulses.push({
             type: 'Feature',
-            geometry: { type: 'Point', coordinates: lerp(focalLngLat, descendantLngLat, tNorm) },
-            properties: { side: 'future', edge_id: `future:${d.id}` },
+            geometry: { type: 'Point', coordinates: lerp(aLngLat, bLngLat, tNorm) },
+            properties: {
+              side: e.side,
+              edge_id: `${e.from_id}->${e.to_id}`,
+            },
           })
         }
       }
+
       edgeSrc.setData({ type: 'FeatureCollection', features: edges })
       nodeSrc.setData({ type: 'FeatureCollection', features: nodes })
       pulseSrc.setData({ type: 'FeatureCollection', features: pulses })
@@ -1137,17 +1146,22 @@ function useMapInstance({
     else map.once('load', apply)
   }, [labelMode])
 
-  // Toggle layer visibility based on viz mode. Each mode has its own
-  // dominant set of layers; the others hide so the map stays uncluttered.
-  // Flow mode hides extents and observations and shows propagation arrows;
-  // it's the only mode that surfaces propagation_event geometry on the map.
+  // Toggle layer visibility based on viz mode AND lineage activeness.
+  //
+  // When lineage mode is on, the regular `carriers` / `carrier-extents` /
+  // `observations` / `propagation` layers all hide so the lineage subgraph
+  // owns the map — the user shouldn't be able to click a non-lineage
+  // carrier and inadvertently lose the locked focal. Lineage layers
+  // (handled in their own data effect) stay on top.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
     const apply = () => {
-      const fillVis = vizMode === 'fill' ? 'visible' : 'none'
-      const pointVis = vizMode === 'pointwise' ? 'visible' : 'none'
-      const flowVis = vizMode === 'flow' ? 'visible' : 'none'
+      const fillVis = !lineageActive && vizMode === 'fill' ? 'visible' : 'none'
+      const pointVis = !lineageActive && vizMode === 'pointwise' ? 'visible' : 'none'
+      const flowVis = !lineageActive && vizMode === 'flow' ? 'visible' : 'none'
+      const carrierVis = lineageActive ? 'none' : 'visible'
+
       for (const id of [
         'carrier-extents-fill',
         'carrier-extents-outline-solid',
@@ -1165,10 +1179,13 @@ function useMapInstance({
       ]) {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', flowVis)
       }
+      for (const id of ['carriers-circle', 'carriers-label']) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', carrierVis)
+      }
     }
     if (map.getLayer('carrier-extents-fill')) apply()
     else map.once('load', apply)
-  }, [vizMode])
+  }, [vizMode, lineageActive])
 
   return mapRef
 }
@@ -1184,6 +1201,8 @@ function SingleMap({
   paleoCoastlines,
   historicalPlaces,
   lineage,
+  lineageActive,
+  onLineageNodeClick,
   perspectiveId,
   onCarrierClick,
   onMapClick,
@@ -1197,6 +1216,8 @@ function SingleMap({
   paleoCoastlines: GeoJSON.FeatureCollection | null
   historicalPlaces: MapInstanceProps['historicalPlaces']
   lineage: CarrierLineageResponse | null
+  lineageActive: boolean
+  onLineageNodeClick: (id: string) => void
   perspectiveId: string
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -1213,6 +1234,8 @@ function SingleMap({
     paleoCoastlines,
     historicalPlaces,
     lineage,
+    lineageActive,
+    onLineageNodeClick,
     perspectiveId,
     onCarrierClick,
     onMapClick,
@@ -1252,21 +1275,52 @@ export function WorldMap({
   const setSelectedCarrierId = useStore((s) => s.setSelectedCarrierId)
   const selectedCarrierId = useStore((s) => s.selectedCarrierId)
   const setClickPoint = useStore((s) => s.setClickPoint)
+  const lineageMode = useStore((s) => s.lineageMode)
+  const setLineagePreviewCarrierId = useStore((s) => s.setLineagePreviewCarrierId)
+
+  // Lineage mode is "active" — i.e. should lock the focal and hide regular
+  // carriers — when the user has chosen a side AND there's a focal selected.
+  const lineageActive = lineageMode !== 'off' && !!selectedCarrierId
 
   const handleCarrierClick = useCallback(
     (id: string) => {
+      // While lineage is locked, ignore clicks on carriers outside the
+      // lineage subgraph (those layers are hidden anyway, but defensive).
+      if (lineageActive) {
+        setLineagePreviewCarrierId(id)
+        return
+      }
       setClickPoint(null)
       setSelectedCarrierId(id === selectedCarrierId ? null : id)
     },
-    [selectedCarrierId, setSelectedCarrierId, setClickPoint]
+    [selectedCarrierId, setSelectedCarrierId, setClickPoint, lineageActive, setLineagePreviewCarrierId]
+  )
+
+  // Click on a lineage node: never reseat the focal. Show node info in the
+  // preview slot instead. Clicking the focal again clears the preview.
+  const handleLineageNodeClick = useCallback(
+    (id: string) => {
+      if (id === selectedCarrierId) {
+        setLineagePreviewCarrierId(null)
+        return
+      }
+      setLineagePreviewCarrierId(id)
+    },
+    [selectedCarrierId, setLineagePreviewCarrierId]
   )
 
   const handleMapClick = useCallback(
     (lat: number, lon: number) => {
+      // In lineage mode, empty-area clicks just clear the preview without
+      // touching the locked focal or showing a click-point picker.
+      if (lineageActive) {
+        setLineagePreviewCarrierId(null)
+        return
+      }
       setSelectedCarrierId(null)
       setClickPoint({ lat, lon })
     },
-    [setSelectedCarrierId, setClickPoint]
+    [setSelectedCarrierId, setClickPoint, lineageActive, setLineagePreviewCarrierId]
   )
 
   if (!worldData || activePerspectives.length === 0) {
@@ -1290,6 +1344,8 @@ export function WorldMap({
         paleoCoastlines={paleoCoastlines}
         historicalPlaces={historicalPlaces}
         lineage={lineage}
+        lineageActive={lineageActive}
+        onLineageNodeClick={handleLineageNodeClick}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
       />
@@ -1316,6 +1372,8 @@ export function WorldMap({
           paleoCoastlines={paleoCoastlines}
           historicalPlaces={historicalPlaces}
           lineage={lineage}
+          lineageActive={lineageActive}
+          onLineageNodeClick={handleLineageNodeClick}
           diffIds={diffIds}
           onCarrierClick={handleCarrierClick}
           onMapClick={handleMapClick}
@@ -1341,6 +1399,8 @@ export function WorldMap({
         paleoCoastlines={paleoCoastlines}
         historicalPlaces={historicalPlaces}
         lineage={lineage}
+        lineageActive={lineageActive}
+        onLineageNodeClick={handleLineageNodeClick}
         perspectiveId={pid}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
@@ -1358,6 +1418,8 @@ function SideBySideMap({
   paleoCoastlines,
   historicalPlaces,
   lineage,
+  lineageActive,
+  onLineageNodeClick,
   onCarrierClick,
   onMapClick,
 }: {
@@ -1369,6 +1431,8 @@ function SideBySideMap({
   paleoCoastlines: GeoJSON.FeatureCollection | null
   historicalPlaces: MapInstanceProps['historicalPlaces']
   lineage: CarrierLineageResponse | null
+  lineageActive: boolean
+  onLineageNodeClick: (id: string) => void
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
 }) {
@@ -1391,6 +1455,8 @@ function SideBySideMap({
     paleoCoastlines,
     historicalPlaces,
     lineage,
+    lineageActive,
+    onLineageNodeClick,
     perspectiveId: leftPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -1409,6 +1475,8 @@ function SideBySideMap({
     paleoCoastlines,
     historicalPlaces,
     lineage,
+    lineageActive,
+    onLineageNodeClick,
     perspectiveId: rightPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -1450,6 +1518,8 @@ function DiffMapUpdater({
   paleoCoastlines,
   historicalPlaces,
   lineage,
+  lineageActive,
+  onLineageNodeClick,
   diffIds,
   onCarrierClick,
   onMapClick,
@@ -1463,6 +1533,8 @@ function DiffMapUpdater({
   paleoCoastlines: GeoJSON.FeatureCollection | null
   historicalPlaces: MapInstanceProps['historicalPlaces']
   lineage: CarrierLineageResponse | null
+  lineageActive: boolean
+  onLineageNodeClick: (id: string) => void
   diffIds: Set<string>
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -1478,6 +1550,8 @@ function DiffMapUpdater({
     paleoCoastlines,
     historicalPlaces,
     lineage,
+    lineageActive,
+    onLineageNodeClick,
     perspectiveId: 'diff',
     diffCarrierIds: diffIds,
     onCarrierClick,

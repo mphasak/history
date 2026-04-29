@@ -213,29 +213,56 @@ class CarrierTimelineResponse(BaseModel):
 
 
 class CarrierLineageNode(BaseModel):
-    """A single ancestor or descendant carrier in the lineage view."""
+    """A single carrier in the lineage view (focal, ancestor, or descendant).
+
+    For multi-hop lineage, `depth` is the number of BFS hops from the focal
+    (0 = focal, 1 = direct ancestor/descendant, 2 = ancestor-of-ancestor /
+    descendant-of-descendant, etc.). `side` discriminates the BFS direction.
+    For depth-1 entries `shared_trait_ids` are the traits bridging this
+    carrier to the focal; for deeper entries it bridges this carrier to
+    the *source* of the hop (the parent in the BFS tree).
+    """
     id: str
     display_name: str
     type: str
     date_min_year: int
     date_max_year: int
     centroid: GeoPoint | None
-    # The trait_ids that bridge this carrier and the focal one. Empty when the
-    # node was found via the spatial-fallback path (focal had no traits).
+    shared_trait_ids: list[str] = []
+    depth: int = 0
+    side: str = "focal"  # 'focal' | 'past' | 'future'
+
+
+class CarrierLineageEdge(BaseModel):
+    """A single (parent → child) lineage edge.
+
+    Edges are oriented older → newer temporally regardless of the side: for
+    past edges `from_id` is the older ancestor and `to_id` is the newer
+    source carrier; for future edges `from_id` is the older source and
+    `to_id` is the newer descendant. The frontend uses this to lay out the
+    DAG in time without inferring direction from coordinates.
+    """
+    from_id: str
+    to_id: str
+    side: str  # 'past' | 'future'
     shared_trait_ids: list[str] = []
 
 
 class CarrierLineageResponse(BaseModel):
-    """Past + future lineage view for a focal carrier at a queried year.
+    """Multi-hop lineage DAG for a focal carrier.
 
-    Ancestors are carriers that ended before the focal began and share at
-    least one trait with the focal's trait mix; descendants are the symmetric
-    forward-in-time case.
+    `nodes` and `edges` describe the full BFS tree (up to `max_depth` hops
+    from the focal, capped per-hop by `max_per_hop`). `ancestors` /
+    `descendants` are kept for backward compatibility — they're depth-1
+    direct neighbors, equivalent to the original single-hop response.
     """
     carrier_id: str
     year: int
-    direction: str  # "past" | "future" | "both"
+    direction: str
+    max_depth: int
     focal: CarrierLineageNode | None
+    nodes: list[CarrierLineageNode] = []
+    edges: list[CarrierLineageEdge] = []
     ancestors: list[CarrierLineageNode]
     descendants: list[CarrierLineageNode]
 

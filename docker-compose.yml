@@ -209,6 +209,25 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Modern-US trait_mix backfill (Rural South + SF Bay Area). Necessary for
+  # the multi-hop lineage demo: without these the BFS can't trace from
+  # the modern carriers back through European Bronze Age, Mesolithic,
+  # OOA, etc., to Neanderthal.
+  modern-us-traitmix-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/015_seed_modern_us_trait_mixes.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Backfill trait_mix rows for the carriers from 010, 012, and 013 that
   # didn't have any (so the DetailPanel and cluster coloring don't show
   # empty bars). Editorial best-effort summaries cited via DEDUCED_PHASE_0.
@@ -341,6 +360,8 @@ services:
       regional-gap-seed:
         condition: service_completed_successfully
       trait-mix-backfill-seed:
+        condition: service_completed_successfully
+      modern-us-traitmix-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

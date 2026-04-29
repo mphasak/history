@@ -400,6 +400,35 @@ async def test_world_includes_regional_gap_filler_carriers(client):
 
 
 @pytest.mark.asyncio
+async def test_carrier_lineage_multi_hop_traces_to_neanderthal(client):
+    """
+    The multi-hop lineage BFS should let the user trace from a modern
+    population (Rural South US, with NEANDERTHAL admixture in its mix) all
+    the way back to the CARR_HOMININ_NEANDERTHAL hominin carrier within a
+    handful of hops. This is the headline demo for the multi-hop graph.
+    """
+    r = await client.get(
+        "/carrier/CARR_RURAL_SOUTH_US_2025/lineage",
+        params={"year": 2000, "direction": "past", "max_depth": 6, "max_per_hop": 5},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    if not data["nodes"]:
+        pytest.skip("Modern-US trait_mix not seeded; 015 not applied")
+    ids = {n["id"] for n in data["nodes"]}
+    assert "CARR_HOMININ_NEANDERTHAL" in ids, (
+        f"Multi-hop trace from Rural South US should reach Neanderthal; "
+        f"got {len(ids)} nodes"
+    )
+    # The graph should have edges, and every edge must point to a node we
+    # know about (the frontend assumes nodesById covers every endpoint).
+    assert len(data["edges"]) > 0
+    for e in data["edges"]:
+        assert e["from_id"] in ids
+        assert e["to_id"] in ids
+
+
+@pytest.mark.asyncio
 async def test_carrier_lineage_direction_param(client):
     """direction=past suppresses descendants and vice versa."""
     r = await client.get(
