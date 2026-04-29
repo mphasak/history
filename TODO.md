@@ -10,3 +10,7 @@
 - ✓ Wikipedia images in DetailPanel: client-side fetch from Wikipedia REST `page/summary` (CORS-allowed, no API key); explicit carrier_id → page-title overrides for ~70 well-known carriers, fall back to display_name for the rest. Image links to the article and a 3-line extract is shown beneath. Carriers with no Wikipedia article render no image (silent fail).
 - ✓ Sweep populations missing trait mixes (db/014): editorial best-effort ancestry compositions for 93 carriers that previously rendered an empty trait-mix bar (Holocene gap-fillers, foragers, regional gap-fillers). Mali Empire = AFR_WEST-dominant, Mehrgarh = IRN_N + ASI, Polynesians = EAST_ASIAN + AUS_PNG, Saami ancestral = EHG + WHG + EAST_ASIAN, etc. All cited via DEDUCED_PHASE_0; tagged `[AUTO-TRAITMIX-014]` for idempotent re-application.
 - ✓ Date range under the carrier name in the DetailPanel header (compact format: "55 kya – 45 kya" for paleolithic, "1500 BCE – 500 CE" for historical).
+- add a codebase harness following https://openai.com/index/harness-engineering/
+- ultra-think DB enrichment sweep: fill in missing photos / ancestry / threats / etc. across all carriers
+- think hard about UI improvements, then ship
+- think hard about data improvements, then ship

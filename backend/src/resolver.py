@@ -86,6 +86,58 @@ def _index_endorsements(rows: list[dict]) -> dict[tuple[str, str], dict]:
     return idx
 
 
+def _unwrap_antimeridian_geojson(geojson_str: str | None) -> str | None:
+    """
+    PostGIS' `ST_Buffer(centroid::geography, R)::geometry` faithfully
+    represents the spherical buffer in lat/lon — but for a centroid near the
+    antimeridian (e.g. Chukchi at +177.5°E with an 800 km radius) the
+    resulting polygon ring jumps from a positive longitude near +180° to a
+    negative one near -180°. MapLibre treats GeoJSON as planar, so it draws
+    the polygon the *long* way around the globe — producing the horizontal
+    pink bands at the top and bottom of the world map.
+
+    Fix: walk each ring forward and shift each successive longitude by ±360°
+    as needed so the longitude delta to its predecessor stays in (-180, 180].
+    The resulting polygon may have longitudes outside [-180, 180], but
+    MapLibre renders such polygons correctly (it wraps them on display).
+
+    No-op for polygons that don't cross the antimeridian.
+    """
+    if not geojson_str:
+        return geojson_str
+    import json
+    try:
+        gj = json.loads(geojson_str)
+    except (ValueError, TypeError):
+        return geojson_str
+
+    def unwrap_ring(ring: list) -> list:
+        if not ring or len(ring) < 2:
+            return ring
+        out = [list(ring[0])]
+        prev_lon = float(ring[0][0])
+        for pt in ring[1:]:
+            lon = float(pt[0])
+            while lon - prev_lon > 180:
+                lon -= 360
+            while lon - prev_lon < -180:
+                lon += 360
+            out.append([lon, float(pt[1])])
+            prev_lon = lon
+        return out
+
+    t = gj.get("type")
+    if t == "Polygon":
+        gj["coordinates"] = [unwrap_ring(r) for r in gj.get("coordinates", [])]
+    elif t == "MultiPolygon":
+        gj["coordinates"] = [
+            [unwrap_ring(r) for r in poly] for poly in gj.get("coordinates", [])
+        ]
+    else:
+        return geojson_str
+    return json.dumps(gj)
+
+
 _CARRIER_DEFAULT_RADIUS_M = {
     "population": 800_000,
     "community": 300_000,
@@ -147,6 +199,11 @@ async def resolve_world(
                ST_Y(c.centroid::geometry) AS lat,
                ST_X(c.centroid::geometry) AS lon,
                c.archaeological_culture, c.linguistic_affiliation,
+               -- Always unwrap by 360° so even authored polygons that include
+               -- antimeridian-crossing rings (Bering Strait extents,
+               -- circum-Pacific carriers, etc.) render the short way.
+               -- The post-process unwrap in `_unwrap_antimeridian_geojson`
+               -- handles this idempotently.
                ST_AsGeoJSON(
                  COALESCE(
                    snap.geometry::geometry,
@@ -175,6 +232,12 @@ async def resolve_world(
         {"year": year, "west": west, "east": east, "south": south, "north": north},
     )
     carriers: list[dict] = [dict(r) async for r in carrier_rows]
+    # Antimeridian unwrap on every carrier extent_geojson — MapLibre treats
+    # GeoJSON as planar, so without this the Chukchi / Aleut / circum-
+    # Pacific buffers paint horizontal bands across the world map.
+    for c in carriers:
+        if c.get("extent_geojson"):
+            c["extent_geojson"] = _unwrap_antimeridian_geojson(c["extent_geojson"])
 
     # Batch-fetch trait mixes for all carriers in one query (avoids N+1).
     # For each carrier, select only the most recent snapshot at or before year.

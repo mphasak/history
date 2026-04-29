@@ -233,6 +233,45 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Authored extent polygons for the post-Columbian carriers from 017
+  # (without these the buffered 800km fallback paints them as point
+  # circles instead of continental coverage).
+  post-columbian-extents-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      post-columbian-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/018_seed_post_columbian_extents.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
+  # Modern continental carriers (Modern USA / Canada / Mexico) so that
+  # post-WWII N America isn't a couple of regional dots.
+  modern-continental-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      post-columbian-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/019_seed_modern_continental_carriers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Post-Columbian / globalization-era carriers (~13): colonial-period
   # settlers, slave-trade-derived diaspora, and post-WWII demographic
   # synthesis populations across the Americas, Australia/NZ, southern
@@ -411,6 +450,10 @@ services:
       temporal-bridge-seed:
         condition: service_completed_successfully
       post-columbian-seed:
+        condition: service_completed_successfully
+      post-columbian-extents-seed:
+        condition: service_completed_successfully
+      modern-continental-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim
