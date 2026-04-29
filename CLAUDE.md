@@ -151,6 +151,21 @@ ice sheets, where sea-level + bathymetry doesn't apply. A snapshot with
 `/paleo-basemap` endpoint uses `DISTINCT ON (feature_id) ... ORDER BY feature_id,
 as_of_year DESC` so the NULL row wins for years past disappearance.
 
+### Defaults
+
+The app loads with a single default state:
+- **Perspective**: `PERSP_POSTREICH_2025` only (academic mainstream).
+- **Viz mode**: `fill`.
+- **Label mode**: `none`.
+
+The Perspective picker is **collapsed** by default — it shows a small
+"Perspective" pill in the top-left, expandable into the full multi-select
+when the user wants to compare scholarly schools (e.g. AMT vs OOI for the
+Indo-Aryan demo). The DB column `perspective.default_active` is preserved
+so URL-driven demos like
+`/?perspectives=PERSP_INDIAN_AMT,PERSP_INDIAN_OOI` still work; the seed
+just doesn't auto-activate all default-actives any more.
+
 ### Year range and slider
 
 The slider (`frontend/src/components/YearSlider.tsx`) is piecewise-log:

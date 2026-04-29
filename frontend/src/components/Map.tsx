@@ -472,10 +472,17 @@ function useMapInstance({
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       })
+      // Two-layer connector style: a thick translucent halo behind a thin
+      // solid core, so edges read as glowing connectors against the
+      // basemap (the prior single 2-px dashed line was too thin to see at
+      // continent scale, especially when the focal carrier sits on top of
+      // the raster). MapLibre rejects data-driven `line-blur`, so the halo
+      // gets fixed blur per layer.
       map.addLayer({
-        id: 'lineage-edges-line',
+        id: 'lineage-edges-halo',
         type: 'line',
         source: 'lineage-edges',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': [
             'match', ['get', 'side'],
@@ -483,16 +490,56 @@ function useMapInstance({
             'future', '#22d3ee',   // cyan
             '#9ca3af',
           ],
-          'line-width': 2,
-          // Active edges (whose connected carrier is alive at the current
-          // slider year) render at full opacity; inactive edges fade to a
-          // ghosted state so the animation reads as "this connection has
-          // not yet emerged" or "is in the past." Property is recomputed
-          // and pushed by the lineage update effect.
+          'line-width': 9,
+          'line-blur': 4,
           'line-opacity': [
-            'case', ['==', ['get', 'active'], true], 0.85, 0.18,
+            'case', ['==', ['get', 'active'], true], 0.45, 0.10,
           ],
-          'line-dasharray': [2, 2],
+        },
+      })
+      map.addLayer({
+        id: 'lineage-edges-line',
+        type: 'line',
+        source: 'lineage-edges',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': [
+            'match', ['get', 'side'],
+            'past', '#fde68a',     // amber-200, brighter than the halo
+            'future', '#a5f3fc',   // cyan-200
+            '#e5e7eb',
+          ],
+          'line-width': 3.5,
+          'line-opacity': [
+            'case', ['==', ['get', 'active'], true], 0.95, 0.30,
+          ],
+        },
+      })
+
+      // Pulse dots: a single bright marker per edge that travels along the
+      // line in proportion to how far through the lineage span we are. The
+      // position is recomputed on every year change (which fires both
+      // during normal scrubbing and during animation), so the dots
+      // visibly slide along the connectors when the user hits Play.
+      map.addSource('lineage-pulse', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'lineage-pulse-dot',
+        type: 'circle',
+        source: 'lineage-pulse',
+        paint: {
+          'circle-radius': 6,
+          'circle-color': [
+            'match', ['get', 'side'],
+            'past', '#fde047',
+            'future', '#67e8f9',
+            '#ffffff',
+          ],
+          'circle-stroke-color': '#0f172a',
+          'circle-stroke-width': 2,
+          'circle-opacity': 1,
         },
       })
 
@@ -925,15 +972,28 @@ function useMapInstance({
     const apply = () => {
       const edgeSrc = map.getSource('lineage-edges') as maplibregl.GeoJSONSource | undefined
       const nodeSrc = map.getSource('lineage-nodes') as maplibregl.GeoJSONSource | undefined
-      if (!edgeSrc || !nodeSrc) return
+      const pulseSrc = map.getSource('lineage-pulse') as maplibregl.GeoJSONSource | undefined
+      if (!edgeSrc || !nodeSrc || !pulseSrc) return
 
       const edges: GeoJSON.Feature[] = []
       const nodes: GeoJSON.Feature[] = []
+      const pulses: GeoJSON.Feature[] = []
       // A node/edge is "active" when its carrier's date range covers the
       // current year. The lineage anchor itself stays fixed (see
       // useCarrierLineage), so toggling animation just changes which
       // ancestors/descendants light up — the cast of nodes is stable.
       const isActive = (minY: number, maxY: number) => year >= minY && year <= maxY
+
+      // Linear interpolation between two lng/lat points by t ∈ [0, 1].
+      // For continent-scale connectors plain linear is fine (the visual
+      // is "a particle is moving along this edge", not great-circle
+      // navigation precision).
+      const lerp = (
+        a: [number, number],
+        b: [number, number],
+        t: number,
+      ): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+
       if (lineage?.focal?.centroid) {
         const f = lineage.focal
         const focalActive = isActive(f.date_min_year, f.date_max_year)
@@ -951,12 +1011,10 @@ function useMapInstance({
         for (const a of lineage.ancestors) {
           if (!a.centroid) continue
           const active = isActive(a.date_min_year, a.date_max_year)
+          const ancestorLngLat: [number, number] = [a.centroid.lon, a.centroid.lat]
           edges.push({
             type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: [[a.centroid.lon, a.centroid.lat], focalLngLat],
-            },
+            geometry: { type: 'LineString', coordinates: [ancestorLngLat, focalLngLat] },
             properties: {
               side: 'past',
               id: a.id,
@@ -966,7 +1024,7 @@ function useMapInstance({
           })
           nodes.push({
             type: 'Feature',
-            geometry: { type: 'Point', coordinates: [a.centroid.lon, a.centroid.lat] },
+            geometry: { type: 'Point', coordinates: ancestorLngLat },
             properties: {
               id: a.id,
               display_name: a.display_name,
@@ -975,16 +1033,25 @@ function useMapInstance({
               active,
             },
           })
+          // Past-edge pulse: travels from ancestor → focal as years progress
+          // from a.date_max_year (ancestor's end) to f.date_min_year (focal's
+          // start). Outside that interval, clamp to one of the endpoints.
+          const t0 = a.date_max_year
+          const t1 = Math.max(t0 + 1, f.date_min_year)
+          const tNorm = Math.min(1, Math.max(0, (year - t0) / (t1 - t0)))
+          pulses.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: lerp(ancestorLngLat, focalLngLat, tNorm) },
+            properties: { side: 'past', edge_id: `past:${a.id}` },
+          })
         }
         for (const d of lineage.descendants) {
           if (!d.centroid) continue
           const active = isActive(d.date_min_year, d.date_max_year)
+          const descendantLngLat: [number, number] = [d.centroid.lon, d.centroid.lat]
           edges.push({
             type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: [focalLngLat, [d.centroid.lon, d.centroid.lat]],
-            },
+            geometry: { type: 'LineString', coordinates: [focalLngLat, descendantLngLat] },
             properties: {
               side: 'future',
               id: d.id,
@@ -994,7 +1061,7 @@ function useMapInstance({
           })
           nodes.push({
             type: 'Feature',
-            geometry: { type: 'Point', coordinates: [d.centroid.lon, d.centroid.lat] },
+            geometry: { type: 'Point', coordinates: descendantLngLat },
             properties: {
               id: d.id,
               display_name: d.display_name,
@@ -1003,10 +1070,21 @@ function useMapInstance({
               active,
             },
           })
+          // Future-edge pulse: focal → descendant as years progress from
+          // focal.date_max_year to d.date_min_year.
+          const t0 = f.date_max_year
+          const t1 = Math.max(t0 + 1, d.date_min_year)
+          const tNorm = Math.min(1, Math.max(0, (year - t0) / (t1 - t0)))
+          pulses.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: lerp(focalLngLat, descendantLngLat, tNorm) },
+            properties: { side: 'future', edge_id: `future:${d.id}` },
+          })
         }
       }
       edgeSrc.setData({ type: 'FeatureCollection', features: edges })
       nodeSrc.setData({ type: 'FeatureCollection', features: nodes })
+      pulseSrc.setData({ type: 'FeatureCollection', features: pulses })
     }
     if (map.getSource('lineage-edges')) apply()
     else map.once('load', apply)

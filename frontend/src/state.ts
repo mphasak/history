@@ -79,12 +79,16 @@ interface HistorySimState {
   setCarrierColorMode: (mode: CarrierColorMode) => void
 }
 
-// Read initial year + perspectives from URL params
+// Read initial year + perspectives from URL params.
+// Default perspective is the academic-mainstream Post-Reich consensus —
+// users who want comparative perspectives can open the (collapsed) picker.
+const DEFAULT_PERSPECTIVE = 'PERSP_POSTREICH_2025'
+
 function getInitialState() {
   const params = new URLSearchParams(window.location.search)
   const year = params.has('year') ? parseInt(params.get('year')!, 10) : -2000
   const persp = params.get('perspectives')
-  const perspectives = persp ? persp.split(',').filter(Boolean) : []
+  const perspectives = persp ? persp.split(',').filter(Boolean) : [DEFAULT_PERSPECTIVE]
   return { year, perspectives }
 }
 
@@ -115,10 +119,10 @@ export const useStore = create<HistorySimState>((set) => ({
   renderMode: 'single',
   setRenderMode: (mode) => set({ renderMode: mode }),
 
-  vizMode: 'pointwise',
+  vizMode: 'fill',
   setVizMode: (mode) => set({ vizMode: mode }),
 
-  labelMode: 'modern',
+  labelMode: 'none',
   setLabelMode: (mode) => set({ labelMode: mode }),
 
   lineageMode: 'off',
