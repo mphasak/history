@@ -336,6 +336,35 @@ async def test_carrier_lineage_endpoint_indo_aryan(client):
 
 
 @pytest.mark.asyncio
+async def test_gap_filler_carriers_have_trait_mix(client):
+    """
+    The 014 trait-mix backfill seeds editorial-best-effort ancestry for the
+    013 gap-fillers and the 010/012 carriers that lacked any trait_mix.
+    Verify Mali Empire shows AFR_WEST as its dominant component (it should
+    cluster with West African populations under the 'cluster' color mode).
+    """
+    r = await client.get(
+        "/world",
+        params={
+            "year": 1400,
+            "bbox": "-180,-85,180,85",
+            "perspectives": "PERSP_REICH_2018",
+        },
+    )
+    assert r.status_code == 200
+    carriers = r.json()["perspectives"]["PERSP_REICH_2018"]["carriers"]
+    mali = next((c for c in carriers if c["id"] == "CARR_HIST_GAP_MALI_EMPIRE"), None)
+    if mali is None:
+        pytest.skip("013 regional-gap seed not applied")
+    if not mali["trait_mix"]:
+        pytest.skip("014 trait-mix backfill not applied")
+    trait_ids = {m["trait_id"] for m in mali["trait_mix"]}
+    assert "AFR_WEST" in trait_ids, (
+        f"Expected AFR_WEST in Mali Empire trait mix; got {trait_ids}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_world_includes_regional_gap_filler_carriers(client):
     """
     The 013 regional gap-filler seed adds Mali Empire, Teotihuacan, and

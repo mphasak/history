@@ -209,6 +209,31 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Backfill trait_mix rows for the carriers from 010, 012, and 013 that
+  # didn't have any (so the DetailPanel and cluster coloring don't show
+  # empty bars). Editorial best-effort summaries cited via DEDUCED_PHASE_0.
+  # Idempotent: keyed on the [AUTO-TRAITMIX-014] claim statement prefix.
+  trait-mix-backfill-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      regional-gap-seed:
+        condition: service_completed_successfully
+      holocene-carriers-seed:
+        condition: service_completed_successfully
+      forager-carriers-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/014_seed_missing_trait_mixes.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Regional gap-fillers (~30 carriers): pre-Inca Andean (Moche/Wari/Tiwanaku),
   # post-Olmec Mesoamerica (Teotihuacan/Toltec/Zapotec/Mixtec), Caribbean
   # Taíno, Sub-Saharan medieval/early-modern (Ghana/Mali/Songhai/Great
@@ -314,6 +339,8 @@ services:
       forager-carriers-seed:
         condition: service_completed_successfully
       regional-gap-seed:
+        condition: service_completed_successfully
+      trait-mix-backfill-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

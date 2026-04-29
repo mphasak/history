@@ -1,0 +1,282 @@
+-- 014_seed_missing_trait_mixes.sql
+--
+-- Backfills trait_mix rows for carriers from 010 (CARR_HIST_HOL_*),
+-- 012 (CARR_HIST_FOR_*), and 013 (CARR_HIST_GAP_*) that lacked any
+-- carrier_trait_mix entries — without them they show empty trait
+-- bars in the DetailPanel and don't participate in cluster coloring.
+--
+-- All entries cite DEDUCED_PHASE_0 (best-effort editorial summary,
+-- per the user's instruction to "self-cite appropriately when no
+-- hard reference is available"). Fractions are approximate, follow
+-- the broad consensus of population-genetics literature where one
+-- exists (e.g. Lazaridis 2014/2017, Skoglund 2014, Patterson 2022,
+-- Posth 2018), and otherwise project the ancestry of nearby /
+-- ancestral populations forward.
+--
+-- Idempotent: DELETE keyed on the AUTO-PROVENANCE-FROM-014 statement
+-- prefix and the explicit carrier_id list. Fractions WITHIN domain
+-- sum to ≤ 1.0; archaic admixture (NEANDERTHAL/DENISOVAN) is
+-- additive at small percentages so the genetic-domain total can
+-- exceed 1.0 by ~3-5% — that matches how admixture papers report it.
+
+-- ---- 1. Tear down prior 014-tagged claims/sources/mixes ---------------------
+DELETE FROM carrier_trait_mix
+WHERE claim_id IN (
+  SELECT id FROM claim
+  WHERE statement LIKE '[AUTO-TRAITMIX-014]%'
+);
+DELETE FROM claim_source
+WHERE claim_id IN (
+  SELECT id FROM claim
+  WHERE statement LIKE '[AUTO-TRAITMIX-014]%'
+);
+DELETE FROM claim
+WHERE statement LIKE '[AUTO-TRAITMIX-014]%';
+
+-- ---- 2. Create one umbrella claim per carrier we touch ----------------------
+-- Used as the claim_id for every mix row we insert, so the provenance is
+-- traceable from the DetailPanel back to DEDUCED_PHASE_0.
+
+INSERT INTO claim (subject_type, subject_id, statement, default_aggregated_confidence)
+SELECT 'Carrier', id,
+       '[AUTO-TRAITMIX-014] Editorial best-effort ancestry composition for ' ||
+       display_name || ' projected from neighboring / ancestral populations; ' ||
+       'see DEDUCED_PHASE_0 for methodology.',
+       3
+FROM carrier
+WHERE id IN (
+  -- Holocene gap-fillers
+  'CARR_HIST_HOL_HASSUNA','CARR_HIST_HOL_HALAF','CARR_HIST_HOL_UBAID',
+  'CARR_HIST_HOL_URUK_PRESTATE','CARR_HIST_HOL_LEVANT_PN','CARR_HIST_HOL_CAPSIAN',
+  'CARR_HIST_HOL_SAHARAN_PASTORAL','CARR_HIST_HOL_PREDYNASTIC_EGYPT',
+  'CARR_HIST_HOL_C_GROUP_NUBIAN','CARR_HIST_HOL_NOK','CARR_HIST_HOL_KINTAMPO',
+  'CARR_HIST_HOL_CARDIAL','CARR_HIST_HOL_VINCA','CARR_HIST_HOL_CUCUTENI_TRYP',
+  'CARR_HIST_HOL_FUNNELBEAKER','CARR_HIST_HOL_MEGALITHIC_ATL',
+  'CARR_HIST_HOL_MEHRGARH','CARR_HIST_HOL_YANGSHAO','CARR_HIST_HOL_HONGSHAN',
+  'CARR_HIST_HOL_LIANGZHU','CARR_HIST_HOL_LONGSHAN','CARR_HIST_HOL_HEMUDU',
+  'CARR_HIST_HOL_ARCHAIC_NA','CARR_HIST_HOL_NORTE_CHICO','CARR_HIST_HOL_OLMEC',
+  'CARR_HIST_HOL_PRECLASSIC_MAYA','CARR_HIST_HOL_CHAVIN','CARR_HIST_HOL_ADENA',
+  'CARR_HIST_HOL_HOPEWELL','CARR_HIST_HOL_SS_AFR_LSA',
+  'CARR_HIST_HOL_ANATOLIA_LATE_NEO','CARR_HIST_HOL_EASTERN_WOODLAND_ARCH',
+  -- Forager / Mesolithic
+  'CARR_HIST_FOR_KEBARAN','CARR_HIST_FOR_LEVANT_PPNA','CARR_HIST_FOR_LEVANT_PPNB',
+  'CARR_HIST_FOR_GOBEKLI','CARR_HIST_FOR_ANATOLIAN_ACERAMIC',
+  'CARR_HIST_FOR_CYPRUS_ACERAMIC','CARR_HIST_FOR_ZAGROS_ACERAMIC',
+  'CARR_HIST_FOR_OASIS_GREATER_CASPIAN','CARR_HIST_FOR_IBERIA_MESO',
+  'CARR_HIST_FOR_ITALY_MESO','CARR_HIST_FOR_MAGLEMOSE','CARR_HIST_FOR_LEPENSKI_VIR',
+  'CARR_HIST_FOR_KARELIAN_MESO','CARR_HIST_FOR_SAAMI_ANCESTRAL',
+  'CARR_HIST_FOR_S_ASIAN_MESO','CARR_HIST_FOR_TIBETAN_FORAGERS',
+  'CARR_HIST_FOR_NE_ASIAN_FORAGERS','CARR_HIST_FOR_SIBERIAN_FOREST',
+  'CARR_HIST_FOR_KOREA_CHULMUN','CARR_HIST_FOR_PENGTOUSHAN',
+  'CARR_HIST_FOR_PACIFIC_NW_FORAGERS','CARR_HIST_FOR_WESTERN_ARCHAIC',
+  'CARR_HIST_FOR_MESOAMER_ARCHAIC','CARR_HIST_FOR_ANDEAN_ARCHAIC',
+  'CARR_HIST_FOR_CHINCHORRO','CARR_HIST_FOR_AMAZON_FORAGERS',
+  'CARR_HIST_FOR_E_AFR_MESO','CARR_HIST_FOR_HORN_AFR_PASTORAL',
+  'CARR_HIST_FOR_KHOISAN_HOL','CARR_HIST_FOR_SAQQAQ',
+  -- 013 gap-fillers
+  'CARR_HIST_GAP_MOCHE','CARR_HIST_GAP_NAZCA','CARR_HIST_GAP_WARI',
+  'CARR_HIST_GAP_TIWANAKU','CARR_HIST_GAP_MARAJOARA','CARR_HIST_GAP_MAPUCHE',
+  'CARR_HIST_GAP_TEOTIHUACAN','CARR_HIST_GAP_ZAPOTEC','CARR_HIST_GAP_MIXTEC',
+  'CARR_HIST_GAP_TOLTEC','CARR_HIST_GAP_PUREPECHA','CARR_HIST_GAP_TAINO',
+  'CARR_HIST_GAP_BANTU_EXPANSION','CARR_HIST_GAP_GHANA_EMPIRE',
+  'CARR_HIST_GAP_MALI_EMPIRE','CARR_HIST_GAP_SONGHAI',
+  'CARR_HIST_GAP_GREAT_ZIMBABWE','CARR_HIST_GAP_KONGO',
+  'CARR_HIST_GAP_SWAHILI_COAST','CARR_HIST_GAP_ASANTE',
+  'CARR_HIST_GAP_ETHIOPIAN_HIGHLAND','CARR_HIST_GAP_LAPITA',
+  'CARR_HIST_GAP_POLYNESIAN_EXP','CARR_HIST_GAP_MAORI',
+  'CARR_HIST_GAP_HAWAIIAN','CARR_HIST_GAP_YAKUT','CARR_HIST_GAP_CHUKCHI',
+  'CARR_HIST_GAP_THULE_INUIT','CARR_HIST_GAP_MISSISSIPPIAN',
+  'CARR_HIST_GAP_NAVAJO_APACHE','CARR_HIST_GAP_HAUDENOSAUNEE'
+);
+
+-- claim_source linking each new claim to DEDUCED_PHASE_0.
+INSERT INTO claim_source (claim_id, source_id, stance, weight_override)
+SELECT id, 'DEDUCED_PHASE_0', 'supports', NULL
+FROM claim WHERE statement LIKE '[AUTO-TRAITMIX-014]%';
+
+-- ---- 3. Trait-mix rows -----------------------------------------------------
+-- Pattern: each block inserts the (carrier_id, trait_id, fraction, year)
+-- tuples as VALUES, then joins to the claim id we just created above.
+
+WITH mix(carrier_id, trait_id, fraction, as_of_year) AS (VALUES
+
+  -- Mesopotamia / Levant Holocene: derived from IRN_N + ANATOLIAN_FARMER + NATUFIAN
+  ('CARR_HIST_HOL_HASSUNA',         'IRN_N',            0.500, -6500),
+  ('CARR_HIST_HOL_HASSUNA',         'ANATOLIAN_FARMER', 0.300, -6500),
+  ('CARR_HIST_HOL_HASSUNA',         'NATUFIAN',         0.200, -6500),
+  ('CARR_HIST_HOL_HALAF',           'IRN_N',            0.450, -5600),
+  ('CARR_HIST_HOL_HALAF',           'ANATOLIAN_FARMER', 0.350, -5600),
+  ('CARR_HIST_HOL_HALAF',           'NATUFIAN',         0.200, -5600),
+  ('CARR_HIST_HOL_UBAID',           'IRN_N',            0.500, -4600),
+  ('CARR_HIST_HOL_UBAID',           'NATUFIAN',         0.300, -4600),
+  ('CARR_HIST_HOL_UBAID',           'ANATOLIAN_FARMER', 0.200, -4600),
+  ('CARR_HIST_HOL_URUK_PRESTATE',   'IRN_N',            0.500, -3500),
+  ('CARR_HIST_HOL_URUK_PRESTATE',   'NATUFIAN',         0.300, -3500),
+  ('CARR_HIST_HOL_URUK_PRESTATE',   'ANATOLIAN_FARMER', 0.200, -3500),
+  ('CARR_HIST_HOL_LEVANT_PN',       'NATUFIAN',         0.600, -5500),
+  ('CARR_HIST_HOL_LEVANT_PN',       'ANATOLIAN_FARMER', 0.300, -5500),
+  ('CARR_HIST_HOL_LEVANT_PN',       'IRN_N',            0.100, -5500),
+
+  -- North Africa / Egypt / sub-Saharan Holocene
+  ('CARR_HIST_HOL_CAPSIAN',         'NATUFIAN',  0.500, -8000),
+  ('CARR_HIST_HOL_CAPSIAN',         'AFR_BASAL', 0.500, -8000),
+  ('CARR_HIST_HOL_SAHARAN_PASTORAL','AFR_BASAL', 0.700, -5500),
+  ('CARR_HIST_HOL_SAHARAN_PASTORAL','NATUFIAN',  0.300, -5500),
+  ('CARR_HIST_HOL_PREDYNASTIC_EGYPT','NATUFIAN',         0.450, -4000),
+  ('CARR_HIST_HOL_PREDYNASTIC_EGYPT','AFR_BASAL',        0.350, -4000),
+  ('CARR_HIST_HOL_PREDYNASTIC_EGYPT','ANATOLIAN_FARMER', 0.200, -4000),
+  ('CARR_HIST_HOL_C_GROUP_NUBIAN',  'AFR_BASAL', 0.700, -2000),
+  ('CARR_HIST_HOL_C_GROUP_NUBIAN',  'NATUFIAN',  0.300, -2000),
+  ('CARR_HIST_HOL_NOK',             'AFR_WEST',  0.900, -500),
+  ('CARR_HIST_HOL_NOK',             'AFR_BASAL', 0.100, -500),
+  ('CARR_HIST_HOL_KINTAMPO',        'AFR_WEST',  0.850, -1700),
+  ('CARR_HIST_HOL_KINTAMPO',        'AFR_BASAL', 0.150, -1700),
+  ('CARR_HIST_HOL_SS_AFR_LSA',      'AFR_BASAL',   0.500, -5000),
+  ('CARR_HIST_HOL_SS_AFR_LSA',      'AFR_WEST',    0.300, -5000),
+  ('CARR_HIST_HOL_SS_AFR_LSA',      'AFR_KHOISAN', 0.200, -5000),
+
+  -- European Neolithic / Mesolithic
+  ('CARR_HIST_HOL_CARDIAL',          'ANATOLIAN_FARMER', 0.850, -5500),
+  ('CARR_HIST_HOL_CARDIAL',          'WHG',              0.150, -5500),
+  ('CARR_HIST_HOL_VINCA',            'ANATOLIAN_FARMER', 0.800, -5000),
+  ('CARR_HIST_HOL_VINCA',            'WHG',              0.200, -5000),
+  ('CARR_HIST_HOL_CUCUTENI_TRYP',    'ANATOLIAN_FARMER', 0.700, -4500),
+  ('CARR_HIST_HOL_CUCUTENI_TRYP',    'WHG',              0.200, -4500),
+  ('CARR_HIST_HOL_CUCUTENI_TRYP',    'EHG',              0.100, -4500),
+  ('CARR_HIST_HOL_FUNNELBEAKER',     'ANATOLIAN_FARMER', 0.750, -3500),
+  ('CARR_HIST_HOL_FUNNELBEAKER',     'WHG',              0.250, -3500),
+  ('CARR_HIST_HOL_MEGALITHIC_ATL',   'ANATOLIAN_FARMER', 0.750, -3500),
+  ('CARR_HIST_HOL_MEGALITHIC_ATL',   'WHG',              0.250, -3500),
+  ('CARR_HIST_HOL_ANATOLIA_LATE_NEO','ANATOLIAN_FARMER', 0.800, -4500),
+  ('CARR_HIST_HOL_ANATOLIA_LATE_NEO','IRN_N',            0.150, -4500),
+  ('CARR_HIST_HOL_ANATOLIA_LATE_NEO','NATUFIAN',         0.050, -4500),
+
+  -- South Asia
+  ('CARR_HIST_HOL_MEHRGARH',         'IRN_N', 0.500, -5000),
+  ('CARR_HIST_HOL_MEHRGARH',         'ASI',   0.500, -5000),
+
+  -- East Asia Holocene
+  ('CARR_HIST_HOL_YANGSHAO',         'EAST_ASIAN', 0.950, -5000),
+  ('CARR_HIST_HOL_YANGSHAO',         'JOMON',      0.050, -5000),
+  ('CARR_HIST_HOL_HONGSHAN',         'EAST_ASIAN', 1.000, -4000),
+  ('CARR_HIST_HOL_LIANGZHU',         'EAST_ASIAN', 1.000, -3500),
+  ('CARR_HIST_HOL_LONGSHAN',         'EAST_ASIAN', 1.000, -2500),
+  ('CARR_HIST_HOL_HEMUDU',           'EAST_ASIAN', 1.000, -5000),
+
+  -- Americas Holocene
+  ('CARR_HIST_HOL_ARCHAIC_NA',       'AMER_NA', 1.000, -5000),
+  ('CARR_HIST_HOL_NORTE_CHICO',      'AMER_NA', 1.000, -2500),
+  ('CARR_HIST_HOL_OLMEC',            'AMER_NA', 1.000, -1000),
+  ('CARR_HIST_HOL_PRECLASSIC_MAYA',  'AMER_NA', 1.000, -800),
+  ('CARR_HIST_HOL_CHAVIN',           'AMER_NA', 1.000, -500),
+  ('CARR_HIST_HOL_ADENA',            'AMER_NA', 1.000, -500),
+  ('CARR_HIST_HOL_HOPEWELL',         'AMER_NA', 1.000, 100),
+  ('CARR_HIST_HOL_EASTERN_WOODLAND_ARCH', 'AMER_NA', 1.000, -3000),
+
+  -- Forager / Mesolithic carriers (012)
+  ('CARR_HIST_FOR_KEBARAN',          'NATUFIAN',         1.000, -18000),
+  ('CARR_HIST_FOR_LEVANT_PPNA',      'NATUFIAN',         1.000, -10500),
+  ('CARR_HIST_FOR_LEVANT_PPNB',      'NATUFIAN',         0.700, -8500),
+  ('CARR_HIST_FOR_LEVANT_PPNB',      'ANATOLIAN_FARMER', 0.300, -8500),
+  ('CARR_HIST_FOR_GOBEKLI',          'NATUFIAN',         0.500, -10000),
+  ('CARR_HIST_FOR_GOBEKLI',          'ANATOLIAN_FARMER', 0.500, -10000),
+  ('CARR_HIST_FOR_ANATOLIAN_ACERAMIC','ANATOLIAN_FARMER',1.000, -8500),
+  ('CARR_HIST_FOR_CYPRUS_ACERAMIC',  'ANATOLIAN_FARMER', 0.800, -8500),
+  ('CARR_HIST_FOR_CYPRUS_ACERAMIC',  'NATUFIAN',         0.200, -8500),
+  ('CARR_HIST_FOR_ZAGROS_ACERAMIC',  'IRN_N',            1.000, -9500),
+  ('CARR_HIST_FOR_OASIS_GREATER_CASPIAN', 'IRN_N', 0.700, -10000),
+  ('CARR_HIST_FOR_OASIS_GREATER_CASPIAN', 'CHG',   0.300, -10000),
+  ('CARR_HIST_FOR_IBERIA_MESO',      'WHG', 1.000, -9000),
+  ('CARR_HIST_FOR_ITALY_MESO',       'WHG', 1.000, -9000),
+  ('CARR_HIST_FOR_MAGLEMOSE',        'WHG', 0.800, -9000),
+  ('CARR_HIST_FOR_MAGLEMOSE',        'EHG', 0.200, -9000),
+  ('CARR_HIST_FOR_LEPENSKI_VIR',     'WHG', 0.700, -8000),
+  ('CARR_HIST_FOR_LEPENSKI_VIR',     'EHG', 0.300, -8000),
+  ('CARR_HIST_FOR_KARELIAN_MESO',    'EHG', 0.900, -8500),
+  ('CARR_HIST_FOR_KARELIAN_MESO',    'WHG', 0.100, -8500),
+  ('CARR_HIST_FOR_SAAMI_ANCESTRAL',  'EHG',        0.500, -3000),
+  ('CARR_HIST_FOR_SAAMI_ANCESTRAL',  'WHG',        0.300, -3000),
+  ('CARR_HIST_FOR_SAAMI_ANCESTRAL',  'EAST_ASIAN', 0.200, -3000),
+  ('CARR_HIST_FOR_S_ASIAN_MESO',     'ASI', 1.000, -7000),
+  ('CARR_HIST_FOR_TIBETAN_FORAGERS', 'EAST_ASIAN', 1.000, -10000),
+  ('CARR_HIST_FOR_NE_ASIAN_FORAGERS','EAST_ASIAN', 1.000, -8000),
+  ('CARR_HIST_FOR_SIBERIAN_FOREST',  'ANE',        0.600, -8000),
+  ('CARR_HIST_FOR_SIBERIAN_FOREST',  'EAST_ASIAN', 0.400, -8000),
+  ('CARR_HIST_FOR_KOREA_CHULMUN',    'EAST_ASIAN', 1.000, -5000),
+  ('CARR_HIST_FOR_PENGTOUSHAN',      'EAST_ASIAN', 1.000, -7500),
+  ('CARR_HIST_FOR_PACIFIC_NW_FORAGERS','AMER_NA',  1.000, -5000),
+  ('CARR_HIST_FOR_WESTERN_ARCHAIC',  'AMER_NA', 1.000, -7000),
+  ('CARR_HIST_FOR_MESOAMER_ARCHAIC', 'AMER_NA', 1.000, -5000),
+  ('CARR_HIST_FOR_ANDEAN_ARCHAIC',   'AMER_NA', 1.000, -6000),
+  ('CARR_HIST_FOR_CHINCHORRO',       'AMER_NA', 1.000, -4000),
+  ('CARR_HIST_FOR_AMAZON_FORAGERS',  'AMER_NA', 1.000, -5000),
+  ('CARR_HIST_FOR_E_AFR_MESO',       'AFR_BASAL', 1.000, -5000),
+  ('CARR_HIST_FOR_HORN_AFR_PASTORAL','AFR_BASAL', 0.700, -3000),
+  ('CARR_HIST_FOR_HORN_AFR_PASTORAL','NATUFIAN',  0.300, -3000),
+  ('CARR_HIST_FOR_KHOISAN_HOL',      'AFR_KHOISAN', 1.000, -3000),
+  ('CARR_HIST_FOR_SAQQAQ',           'AMER_NA', 0.700, -2000),
+  ('CARR_HIST_FOR_SAQQAQ',           'EAST_ASIAN', 0.300, -2000),
+
+  -- 013 gap-fillers — Andean / pre-Inca
+  ('CARR_HIST_GAP_MOCHE',     'AMER_NA', 1.000, 400),
+  ('CARR_HIST_GAP_NAZCA',     'AMER_NA', 1.000, 300),
+  ('CARR_HIST_GAP_WARI',      'AMER_NA', 1.000, 800),
+  ('CARR_HIST_GAP_TIWANAKU',  'AMER_NA', 1.000, 700),
+  ('CARR_HIST_GAP_MARAJOARA', 'AMER_NA', 1.000, 800),
+  ('CARR_HIST_GAP_MAPUCHE',   'AMER_NA', 1.000, 1000),
+  -- Mesoamerica / Caribbean
+  ('CARR_HIST_GAP_TEOTIHUACAN','AMER_NA', 1.000, 200),
+  ('CARR_HIST_GAP_ZAPOTEC',   'AMER_NA', 1.000, 200),
+  ('CARR_HIST_GAP_MIXTEC',    'AMER_NA', 1.000, 1100),
+  ('CARR_HIST_GAP_TOLTEC',    'AMER_NA', 1.000, 1000),
+  ('CARR_HIST_GAP_PUREPECHA', 'AMER_NA', 1.000, 1400),
+  ('CARR_HIST_GAP_TAINO',     'AMER_NA', 1.000, 1300),
+  -- Sub-Saharan
+  ('CARR_HIST_GAP_BANTU_EXPANSION','AFR_WEST',  0.800, 0),
+  ('CARR_HIST_GAP_BANTU_EXPANSION','AFR_BASAL', 0.200, 0),
+  ('CARR_HIST_GAP_GHANA_EMPIRE','AFR_WEST',  0.900, 1000),
+  ('CARR_HIST_GAP_GHANA_EMPIRE','AFR_BASAL', 0.100, 1000),
+  ('CARR_HIST_GAP_MALI_EMPIRE', 'AFR_WEST',  0.900, 1400),
+  ('CARR_HIST_GAP_MALI_EMPIRE', 'AFR_BASAL', 0.100, 1400),
+  ('CARR_HIST_GAP_SONGHAI',     'AFR_WEST',  0.900, 1500),
+  ('CARR_HIST_GAP_SONGHAI',     'AFR_BASAL', 0.100, 1500),
+  ('CARR_HIST_GAP_GREAT_ZIMBABWE','AFR_WEST',    0.700, 1300),
+  ('CARR_HIST_GAP_GREAT_ZIMBABWE','AFR_BASAL',   0.200, 1300),
+  ('CARR_HIST_GAP_GREAT_ZIMBABWE','AFR_KHOISAN', 0.100, 1300),
+  ('CARR_HIST_GAP_KONGO',     'AFR_WEST',  0.800, 1600),
+  ('CARR_HIST_GAP_KONGO',     'AFR_BASAL', 0.200, 1600),
+  ('CARR_HIST_GAP_SWAHILI_COAST','AFR_WEST',  0.700, 1300),
+  ('CARR_HIST_GAP_SWAHILI_COAST','AFR_BASAL', 0.200, 1300),
+  ('CARR_HIST_GAP_SWAHILI_COAST','NATUFIAN',  0.100, 1300),
+  ('CARR_HIST_GAP_ASANTE',    'AFR_WEST',  0.950, 1800),
+  ('CARR_HIST_GAP_ASANTE',    'AFR_BASAL', 0.050, 1800),
+  ('CARR_HIST_GAP_ETHIOPIAN_HIGHLAND','AFR_BASAL', 0.600, 1500),
+  ('CARR_HIST_GAP_ETHIOPIAN_HIGHLAND','NATUFIAN',  0.400, 1500),
+  -- Pacific (heavy AUS_PNG/Papuan + EAST_ASIAN per Skoglund 2016, Lipson 2018)
+  ('CARR_HIST_GAP_LAPITA',    'EAST_ASIAN', 0.700, -1000),
+  ('CARR_HIST_GAP_LAPITA',    'AUS_PNG',    0.300, -1000),
+  ('CARR_HIST_GAP_POLYNESIAN_EXP','EAST_ASIAN', 0.700, 500),
+  ('CARR_HIST_GAP_POLYNESIAN_EXP','AUS_PNG',    0.300, 500),
+  ('CARR_HIST_GAP_MAORI',     'EAST_ASIAN', 0.700, 1500),
+  ('CARR_HIST_GAP_MAORI',     'AUS_PNG',    0.300, 1500),
+  ('CARR_HIST_GAP_HAWAIIAN',  'EAST_ASIAN', 0.700, 1700),
+  ('CARR_HIST_GAP_HAWAIIAN',  'AUS_PNG',    0.300, 1700),
+  -- Siberia / Arctic
+  ('CARR_HIST_GAP_YAKUT',     'EAST_ASIAN', 0.700, 1700),
+  ('CARR_HIST_GAP_YAKUT',     'ANE',        0.300, 1700),
+  ('CARR_HIST_GAP_CHUKCHI',   'EAST_ASIAN', 0.500, 1500),
+  ('CARR_HIST_GAP_CHUKCHI',   'AMER_NA',    0.500, 1500),
+  ('CARR_HIST_GAP_THULE_INUIT','AMER_NA',    0.700, 1300),
+  ('CARR_HIST_GAP_THULE_INUIT','EAST_ASIAN', 0.300, 1300),
+  -- N America
+  ('CARR_HIST_GAP_MISSISSIPPIAN','AMER_NA', 1.000, 1200),
+  ('CARR_HIST_GAP_NAVAJO_APACHE','AMER_NA', 1.000, 1700),
+  ('CARR_HIST_GAP_HAUDENOSAUNEE','AMER_NA', 1.000, 1500)
+)
+INSERT INTO carrier_trait_mix (carrier_id, trait_id, fraction, as_of_year, domain, claim_id)
+SELECT m.carrier_id, m.trait_id, m.fraction, m.as_of_year, t.domain, c.id
+FROM mix m
+JOIN trait t ON t.id = m.trait_id
+JOIN claim c ON c.subject_type = 'Carrier'
+            AND c.subject_id = m.carrier_id
+            AND c.statement LIKE '[AUTO-TRAITMIX-014]%';
