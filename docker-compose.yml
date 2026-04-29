@@ -133,6 +133,32 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Threats for the Holocene gap-filler carriers from 010 plus the older
+  # forager/Mesolithic carriers. Without these, clicking Cucuteni-Trypillia
+  # / Predynastic Egyptian / Yangshao / etc. shows no Threats section.
+  # Must run AFTER carrier-threats-seed since both share the [AUTO-THREAT]
+  # idempotency tag.
+  holocene-threats-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      carriers-seed:
+        condition: service_completed_successfully
+      holocene-carriers-seed:
+        condition: service_completed_successfully
+      carrier-threats-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/011_holocene_carrier_threats.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Threats: per-carrier threat windows + cited claims (climate, war, disease,
   # colonization, etc.). Adds the carrier_threat table + threat_type enum
   # additively (not in 001_schema.sql; this file is the canonical source for
@@ -233,6 +259,8 @@ services:
       territory-snapshots-seed:
         condition: service_completed_successfully
       holocene-carriers-seed:
+        condition: service_completed_successfully
+      holocene-threats-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

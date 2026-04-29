@@ -386,21 +386,24 @@ async def _compute_disagreed_carrier_ids(
         FROM cv
         JOIN carrier car ON car.id = cv.cid
         JOIN claim c ON (
-          (lower(c.subject_type) = 'carrier' AND c.subject_id = car.id)
-          OR (lower(c.subject_type) IN ('carriertrait_mix','carrier_trait_mix')
-              AND c.subject_id LIKE car.id || ':%%')
-          OR (lower(c.subject_type) IN ('propagationevent','propagation_event')
-              AND c.subject_id IN (
-                SELECT pe.id FROM propagation_event pe
-                WHERE
-                  (car.extent IS NOT NULL AND ST_Intersects(pe.destination_point, car.extent))
-                  OR (car.extent IS NULL AND car.centroid IS NOT NULL
-                      AND ST_DWithin(pe.destination_point, car.centroid, %(radius)s))
-                  OR pe.source_trait_ids && (
-                    SELECT array_agg(trait_id) FROM carrier_trait_mix
-                    WHERE carrier_id = car.id
-                  )
-              ))
+          c.statement NOT LIKE '[AUTO-THREAT]%%'
+          AND (
+            (lower(c.subject_type) = 'carrier' AND c.subject_id = car.id)
+            OR (lower(c.subject_type) IN ('carriertrait_mix','carrier_trait_mix')
+                AND c.subject_id LIKE car.id || ':%%')
+            OR (lower(c.subject_type) IN ('propagationevent','propagation_event')
+                AND c.subject_id IN (
+                  SELECT pe.id FROM propagation_event pe
+                  WHERE
+                    (car.extent IS NOT NULL AND ST_Intersects(pe.destination_point, car.extent))
+                    OR (car.extent IS NULL AND car.centroid IS NOT NULL
+                        AND ST_DWithin(pe.destination_point, car.centroid, %(radius)s))
+                    OR pe.source_trait_ids && (
+                      SELECT array_agg(trait_id) FROM carrier_trait_mix
+                      WHERE carrier_id = car.id
+                    )
+                ))
+          )
         )
         """,
         {"carrier_ids": carrier_ids, "radius": _PROP_RELEVANCE_RADIUS_M},
@@ -861,11 +864,17 @@ async def resolve_carrier_claims(
         SELECT DISTINCT id
         FROM claim
         WHERE
-          (lower(subject_type) IN ('carrier') AND subject_id = %(cid)s)
-          OR (lower(subject_type) IN ('carriertrait_mix','carrier_trait_mix')
-              AND subject_id LIKE %(cid_prefix)s)
-          OR (lower(subject_type) IN ('propagationevent','propagation_event')
-              AND subject_id IN (SELECT id FROM relevant_props))
+          -- [AUTO-THREAT] claims are surfaced separately by the
+          -- /carrier/{id}/threats endpoint and shouldn't double up in
+          -- the "Claims about this population" panel section.
+          statement NOT LIKE '[AUTO-THREAT]%%'
+          AND (
+            (lower(subject_type) IN ('carrier') AND subject_id = %(cid)s)
+            OR (lower(subject_type) IN ('carriertrait_mix','carrier_trait_mix')
+                AND subject_id LIKE %(cid_prefix)s)
+            OR (lower(subject_type) IN ('propagationevent','propagation_event')
+                AND subject_id IN (SELECT id FROM relevant_props))
+          )
         ORDER BY id
         """,
         {
