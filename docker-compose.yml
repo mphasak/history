@@ -253,6 +253,51 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Hominin / archaic / earliest-sapiens enrichment: trait_ids for
+  # archaic hominins, self-traits, and AUTO-PROVENANCE claims for the
+  # spreadsheet-origin carriers that previously had no Carrier-level
+  # claim. Closes the "12 trait-less + 19 claim-less carriers" gap from
+  # the drift report.
+  hominin-archaic-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/020_seed_hominin_archaic_traits.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
+  # Threats for the 24 long-lived gap-filler / bridge / post-Columbian
+  # carriers that previously had none — drought / war / disease /
+  # colonization events so the DetailPanel "Threats at {year}" section
+  # actually populates for the second half of the carrier set.
+  gap-threats-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      regional-gap-seed:
+        condition: service_completed_successfully
+      temporal-bridge-seed:
+        condition: service_completed_successfully
+      post-columbian-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/021_seed_threats_for_gap_carriers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Modern continental carriers (Modern USA / Canada / Mexico) so that
   # post-WWII N America isn't a couple of regional dots.
   modern-continental-seed:
@@ -454,6 +499,10 @@ services:
       post-columbian-extents-seed:
         condition: service_completed_successfully
       modern-continental-seed:
+        condition: service_completed_successfully
+      hominin-archaic-seed:
+        condition: service_completed_successfully
+      gap-threats-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim
