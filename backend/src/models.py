@@ -212,6 +212,18 @@ class CarrierTimelineResponse(BaseModel):
     timeline: list[CarrierTimelineSnapshot]
 
 
+class CarrierPlight(BaseModel):
+    """Editorial 1-2 paragraph narrative covering everyday life, origin,
+    and ending for a carrier — pairs with the itemized Threats list to
+    answer "what was it like to live as one of these people?".
+    """
+    carrier_id: str
+    everyday_life: str
+    origin: str | None
+    ending: str | None
+    source_id: str | None
+
+
 class CarrierLineageNode(BaseModel):
     """A single carrier in the lineage view (focal, ancestor, or descendant).
 

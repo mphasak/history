@@ -1,20 +1,13 @@
-# CLAUDE.md — Human History Simulator
+# CLAUDE.md — Human History Simulator (deep reference for AI agents)
 
-## What this is
+> The user-facing overview lives in [README.md](README.md); the short
+> progressive-disclosure entry point for AI agents is [AGENTS.md](AGENTS.md).
+> This file is the deep reference: invariants, gotchas, key files, and
+> design conventions you need to read *before* changing anything load-bearing.
 
-A scrubbable spatiotemporal map of human history. Pick a year, pan the world,
-click on a place to see who lived there and what they carried (genes, languages,
-technologies, ideologies). The map shows carriers, their trait mixes, and the
-propagation events that link them across time.
-
-Perspectives are one feature among several — they let multiple scholarly
-traditions coexist on the same coordinates so users can flip between curated
-worldviews instead of being handed a single "official" reading. Useful for
-contested topics, but not the headline. The Indo-Aryan debate (`PERSP_INDIAN_AMT`
-vs `PERSP_INDIAN_OOI`) is one demo, not the thesis.
-
-See `plan.md` for scope; `schema_v0.3.md` for the data model;
-`editorial_policy_v0.3.md` for governance.
+`plan.md` defines Phase 0 scope; `schema_v0.3.md` is the canonical data
+model; `editorial_policy_v0.3.md` is the governance for adding /
+contesting claims. **None of those three files may be modified.**
 
 ---
 

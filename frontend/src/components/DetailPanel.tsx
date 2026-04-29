@@ -6,6 +6,7 @@ import {
   CarrierTimelineResponse,
   CarrierClaim,
   CarrierThreat,
+  CarrierPlight,
 } from '../api'
 import { useWorldQuery, usePerspectives } from '../hooks/useWorldQuery'
 import { fetchCarrierImage, WikipediaSummary } from '../lib/wikipedia'
@@ -120,6 +121,7 @@ export function DetailPanel() {
   // by title. Many carriers have no Wikipedia page; in that case we silently
   // skip rendering the image.
   const [wiki, setWiki] = useState<WikipediaSummary | null>(null)
+  const [plight, setPlight] = useState<CarrierPlight | null>(null)
 
   useEffect(() => {
     if (!selectedCarrierId || activePerspectives.length === 0) return
@@ -155,6 +157,19 @@ export function DetailPanel() {
       .then((res) => { setThreats(res.threats); setLoadingThreats(false) })
       .catch(() => { setThreats([]); setLoadingThreats(false) })
   }, [selectedCarrierId, year])
+
+  // Plight narrative — editorial 1-2 paragraphs about everyday life,
+  // origin, ending. Many carriers don't have one yet; the section just
+  // hides when the API returns null.
+  useEffect(() => {
+    if (!selectedCarrierId) { setPlight(null); return }
+    let cancelled = false
+    setPlight(null)
+    api.carrierPlight(selectedCarrierId).then((res) => {
+      if (!cancelled) setPlight(res)
+    })
+    return () => { cancelled = true }
+  }, [selectedCarrierId])
 
   // Wikipedia image lookup. Resets per carrier so we don't briefly show the
   // previous carrier's photo while the new fetch is in-flight.
@@ -362,6 +377,34 @@ export function DetailPanel() {
             </div>
           )
         })}
+
+        {/* Plight narrative — editorial 1-2 paragraphs on everyday
+            life, origin, and ending. Pairs with the Threats list:
+            Threats is *itemized event-window* records; Plight is the
+            *narrative gestalt* of what it meant to live as one of these
+            people. Hidden when no narrative is seeded for the carrier. */}
+        {plight && (
+          <div>
+            <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
+              Plight
+            </div>
+            <div className="space-y-2 text-[12px] leading-relaxed text-gray-200">
+              <p>{plight.everyday_life}</p>
+              {plight.origin && (
+                <p>
+                  <span className="text-gray-500 italic">Origin. </span>
+                  {plight.origin}
+                </p>
+              )}
+              {plight.ending && (
+                <p>
+                  <span className="text-gray-500 italic">Ending. </span>
+                  {plight.ending}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Threats faced by this population at the current year. Backend
             filters carrier_threat rows whose [date_min_year, date_max_year]

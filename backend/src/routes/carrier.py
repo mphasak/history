@@ -15,6 +15,7 @@ from ..models import (
     CarrierLineageResponse,
     CarrierLineageNode,
     CarrierLineageEdge,
+    CarrierPlight,
     GeoPoint,
 )
 from ..resolver import (
@@ -25,6 +26,38 @@ from ..resolver import (
 )
 
 router = APIRouter()
+
+
+@router.get("/carrier/{carrier_id}/plight", response_model=CarrierPlight | None)
+async def get_carrier_plight(
+    carrier_id: str,
+    conn: AsyncConnection = Depends(get_conn),
+):
+    """
+    Editorial narrative pairing with /threats: 1-2 paragraph summary of
+    what everyday life was like for this population + what led to their
+    beginning and end. Returns null when no narrative has been seeded
+    yet — many carriers (especially deep paleolithic / forager) don't
+    have one and the panel just hides the section.
+    """
+    row = await conn.execute(
+        """
+        SELECT carrier_id, everyday_life, origin, ending, source_id
+        FROM carrier_plight
+        WHERE carrier_id = %s
+        """,
+        (carrier_id,),
+    )
+    rec = await row.fetchone()
+    if not rec:
+        return None
+    return CarrierPlight(
+        carrier_id=rec["carrier_id"],
+        everyday_life=rec["everyday_life"],
+        origin=rec.get("origin"),
+        ending=rec.get("ending"),
+        source_id=rec.get("source_id"),
+    )
 
 
 @router.get("/carriers/search")

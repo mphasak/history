@@ -253,6 +253,31 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Plight narratives: 1-2 paragraph editorial summary per carrier
+  # describing everyday life, origin, and ending. Adds the
+  # carrier_plight table additively (CREATE TABLE IF NOT EXISTS).
+  # Idempotent on a curated carrier_id list.
+  plight-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      regional-gap-seed:
+        condition: service_completed_successfully
+      temporal-bridge-seed:
+        condition: service_completed_successfully
+      post-columbian-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/024_seed_plight_narratives.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Linguistic-family traits + assignments to ~50 carriers (Indo-European,
   # Sino-Tibetan, Niger-Congo / Bantu, Afro-Asiatic, Austronesian,
   # Dravidian, Turkic, Mongolic, Uralic, Athabaskan, Mayan, Quechuan,
@@ -558,6 +583,8 @@ services:
       linguistic-traits-seed:
         condition: service_completed_successfully
       religion-traits-seed:
+        condition: service_completed_successfully
+      plight-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

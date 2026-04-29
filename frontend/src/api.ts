@@ -164,6 +164,14 @@ export interface CarrierThreatsResponse {
   threats: CarrierThreat[]
 }
 
+export interface CarrierPlight {
+  carrier_id: string
+  everyday_life: string
+  origin: string | null
+  ending: string | null
+  source_id: string | null
+}
+
 export interface HistoricalPlace {
   id: string
   display_name: string
@@ -281,6 +289,9 @@ export const api = {
 
   carriersSearch: (q: string, limit = 20): Promise<CarrierSearchResponse> =>
     get('/carriers/search', { q, limit }),
+
+  carrierPlight: (carrierId: string): Promise<CarrierPlight | null> =>
+    get(`/carrier/${carrierId}/plight`),
 
   carrierClaims: (carrierId: string, perspectives: string[]): Promise<CarrierClaimsResponse> =>
     get(`/carrier/${carrierId}/claims`, {
