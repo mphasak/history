@@ -806,10 +806,52 @@ async def resolve_carrier_threats(
     return threats
 
 
+# A carrier counts as a "real ancestor" of another only if it contributed a
+# non-trivial fraction of ancestry. 0.02 (2%) lets archaic admixture
+# (NEANDERTHAL, DENISOVAN typically 1-4%) bridge through, while still
+# excluding trace-amount overlaps that would otherwise pull in unrelated
+# populations sharing an upstream component (the bug where Saami appeared
+# as descendants of First Americans because they share ANE).
+_LINEAGE_TRAIT_THRESHOLD = 0.02
+
+
+async def _carrier_trait_info(conn, carrier_id: str) -> dict:
+    """
+    Returns the lineage-relevant trait info for one carrier:
+
+    - `dominant`: the trait_id with the largest fraction (ties resolved
+      lexically). None when the carrier has no mix entries.
+    - `substantial`: trait_ids whose fraction >= _LINEAGE_TRAIT_THRESHOLD.
+    - `all`: all distinct trait_ids on the carrier (for the
+      `shared_trait_ids` intersection in the response).
+
+    The lineage BFS uses these to express the "real ancestor" rule (see
+    `_one_hop_lineage`).
+    """
+    rows = await conn.execute(
+        """
+        SELECT trait_id, fraction
+        FROM carrier_trait_mix
+        WHERE carrier_id = %s
+        ORDER BY fraction DESC, trait_id ASC
+        """,
+        (carrier_id,),
+    )
+    items = [(r["trait_id"], float(r["fraction"])) async for r in rows]
+    if not items:
+        return {"dominant": None, "substantial": [], "all": []}
+    return {
+        "dominant": items[0][0],
+        "substantial": [t for t, f in items if f >= _LINEAGE_TRAIT_THRESHOLD],
+        "all": [t for t, _ in items],
+    }
+
+
 async def _one_hop_lineage(
     conn,
     source_carrier_id: str,
-    source_trait_ids: list[str],
+    source_dominant: str | None,
+    source_substantial: list[str],
     source_date_min: int,
     source_date_max: int,
     side: str,
@@ -817,69 +859,151 @@ async def _one_hop_lineage(
     exclude_ids: list[str],
 ) -> list[dict]:
     """
-    One BFS hop in the lineage graph.
+    One BFS hop using the **dominant-trait alignment** rule.
 
-    Given a *source* carrier (already in the graph), find up to `max_per_hop`
-    other carriers that:
-      * share at least one trait_id with the source's trait mix, OR fall
-        within ~3000 km of its centroid (spatial fallback for trait-less
-        carriers);
-      * are temporally before (side='past') or after (side='future') the
-        source;
-      * are not already in `exclude_ids` (the visited set).
+    For an edge between `source` (already in the graph) and a candidate, we
+    require a real ancestry contribution between the two — *sharing* an
+    upstream component is not enough, because that produces the bug where
+    sibling populations show up as descendants.
 
-    Returns a list of dicts with `id`, `display_name`, `type`, `date_*_year`,
-    `centroid`, `shared_trait_ids` (the traits that bridge this candidate to
-    the *source* — not to the focal).
+    - `side='past'` (looking for ancestors of `source`):
+        candidate's *dominant* trait must be one of source's *substantial*
+        traits. Concretely: if Bronze NW South Asia carries
+        {ANI 0.55, ASI 0.30, STEPPE_MLBA 0.15}, its ancestors are carriers
+        whose dominant ancestry is ANI (Iranian Neolithic), ASI (S Asian
+        Mesolithic foragers), or STEPPE_MLBA (Yamnaya, Steppe MLBA carriers).
+
+    - `side='future'` (looking for descendants of `source`):
+        candidate must carry source's *dominant* trait at fraction >=
+        threshold. So First Americans (dominant=AMER_NA) finds descendants
+        with AMER_NA >= 2% in their mix — Inca, Maya, Modern S. Asian
+        Mestizo, etc. — but NOT Saami / Yamnaya / Han, who don't carry
+        AMER_NA at all.
+
+    Spatial fallback (~3000 km radius) only kicks in when the source has no
+    trait_mix data — same rule as before, since otherwise trait-less
+    deep-paleolithic carriers (Homo erectus, etc.) would never connect.
+
+    `shared_trait_ids` in the result is the intersection of the candidate's
+    traits with source's *substantial* traits — useful for the UI to label
+    the edge with multiple bridging components when more than one applies.
     """
     if side == "past":
         where_time = "c.date_max_year <= %(src_min)s"
-        order = "has_trait_edge DESC, c.date_max_year DESC"
+        order_clause = "c.date_max_year DESC"
     else:
         where_time = "c.date_min_year >= %(src_max)s"
-        order = "has_trait_edge DESC, c.date_min_year ASC"
+        order_clause = "c.date_min_year ASC"
 
-    rows = await conn.execute(
-        f"""
-        WITH shared AS (
-            SELECT carrier_id, array_agg(DISTINCT trait_id) AS shared_trait_ids
-            FROM carrier_trait_mix
-            WHERE trait_id = ANY(%(trait_ids)s::text[])
-              AND carrier_id <> %(src_id)s
-            GROUP BY carrier_id
-        ),
-        src_ref AS (
-            SELECT centroid FROM carrier WHERE id = %(src_id)s
+    has_trait_info = (
+        side == "past" and bool(source_substantial)
+    ) or (side == "future" and source_dominant is not None)
+
+    if has_trait_info:
+        if side == "past":
+            # Candidate's dominant trait must be in source's substantial set.
+            trait_filter = """
+                EXISTS (
+                  SELECT 1
+                  FROM carrier_trait_mix dom
+                  WHERE dom.carrier_id = c.id
+                  GROUP BY dom.carrier_id
+                  HAVING (
+                    SELECT trait_id
+                    FROM carrier_trait_mix dx
+                    WHERE dx.carrier_id = c.id
+                    ORDER BY dx.fraction DESC, dx.trait_id ASC
+                    LIMIT 1
+                  ) = ANY(%(traits)s::text[])
+                )
+            """
+            params = {
+                "src_id": source_carrier_id,
+                "traits": list(source_substantial),
+                "src_min": source_date_min,
+                "src_max": source_date_max,
+                "excluded": exclude_ids or [],
+                "lim": max_per_hop,
+                "threshold": _LINEAGE_TRAIT_THRESHOLD,
+            }
+        else:
+            # Candidate must carry source's dominant trait at >= threshold.
+            trait_filter = """
+                EXISTS (
+                  SELECT 1
+                  FROM carrier_trait_mix ctm
+                  WHERE ctm.carrier_id = c.id
+                    AND ctm.trait_id = %(dom)s
+                    AND ctm.fraction >= %(threshold)s
+                )
+            """
+            params = {
+                "src_id": source_carrier_id,
+                "traits": list(source_substantial),
+                "dom": source_dominant,
+                "src_min": source_date_min,
+                "src_max": source_date_max,
+                "excluded": exclude_ids or [],
+                "lim": max_per_hop,
+                "threshold": _LINEAGE_TRAIT_THRESHOLD,
+            }
+
+        rows = await conn.execute(
+            f"""
+            SELECT c.id, c.display_name, c.type,
+                   c.date_min_year, c.date_max_year,
+                   ST_Y(c.centroid::geometry) AS lat,
+                   ST_X(c.centroid::geometry) AS lon,
+                   ARRAY(
+                     SELECT DISTINCT ctm2.trait_id
+                     FROM carrier_trait_mix ctm2
+                     WHERE ctm2.carrier_id = c.id
+                       AND ctm2.trait_id = ANY(%(traits)s::text[])
+                   ) AS shared_trait_ids
+            FROM carrier c
+            WHERE c.id <> %(src_id)s
+              AND NOT (c.id = ANY(%(excluded)s::text[]))
+              AND {where_time}
+              AND {trait_filter}
+            ORDER BY {order_clause}
+            LIMIT %(lim)s
+            """,
+            params,
         )
-        SELECT c.id, c.display_name, c.type,
-               c.date_min_year, c.date_max_year,
-               ST_Y(c.centroid::geometry) AS lat,
-               ST_X(c.centroid::geometry) AS lon,
-               COALESCE(s.shared_trait_ids, ARRAY[]::text[]) AS shared_trait_ids,
-               (s.shared_trait_ids IS NOT NULL) AS has_trait_edge
-        FROM carrier c
-        CROSS JOIN src_ref sr
-        LEFT JOIN shared s ON s.carrier_id = c.id
-        WHERE c.id <> %(src_id)s
-          AND NOT (c.id = ANY(%(excluded)s::text[]))
-          AND {where_time}
-          AND (
-            s.shared_trait_ids IS NOT NULL
-            OR (c.centroid IS NOT NULL AND sr.centroid IS NOT NULL
-                AND ST_DWithin(c.centroid, sr.centroid, 3000000))
-          )
-        ORDER BY {order}
-        LIMIT %(lim)s
-        """,
-        {
-            "src_id": source_carrier_id,
-            "trait_ids": source_trait_ids or [],
-            "src_min": source_date_min,
-            "src_max": source_date_max,
-            "excluded": exclude_ids or [],
-            "lim": max_per_hop,
-        },
-    )
+    else:
+        # Spatial fallback: source has no trait_mix at all. Use the
+        # ~3000 km radius rule so deep-paleolithic carriers still get
+        # *some* lineage signal.
+        rows = await conn.execute(
+            f"""
+            WITH src_ref AS (
+                SELECT centroid FROM carrier WHERE id = %(src_id)s
+            )
+            SELECT c.id, c.display_name, c.type,
+                   c.date_min_year, c.date_max_year,
+                   ST_Y(c.centroid::geometry) AS lat,
+                   ST_X(c.centroid::geometry) AS lon,
+                   ARRAY[]::text[] AS shared_trait_ids
+            FROM carrier c
+            CROSS JOIN src_ref sr
+            WHERE c.id <> %(src_id)s
+              AND NOT (c.id = ANY(%(excluded)s::text[]))
+              AND {where_time}
+              AND c.centroid IS NOT NULL
+              AND sr.centroid IS NOT NULL
+              AND ST_DWithin(c.centroid, sr.centroid, 3000000)
+            ORDER BY {order_clause}
+            LIMIT %(lim)s
+            """,
+            {
+                "src_id": source_carrier_id,
+                "src_min": source_date_min,
+                "src_max": source_date_max,
+                "excluded": exclude_ids or [],
+                "lim": max_per_hop,
+            },
+        )
+
     out = []
     async for r in rows:
         r = dict(r)
@@ -893,15 +1017,6 @@ async def _one_hop_lineage(
             "shared_trait_ids": list(r.get("shared_trait_ids") or []),
         })
     return out
-
-
-async def _carrier_trait_ids(conn, carrier_id: str) -> list[str]:
-    """Distinct trait_ids carried by a carrier across all its mix snapshots."""
-    rows = await conn.execute(
-        "SELECT DISTINCT trait_id FROM carrier_trait_mix WHERE carrier_id = %s",
-        (carrier_id,),
-    )
-    return [r["trait_id"] async for r in rows]
 
 
 async def resolve_carrier_lineage(
@@ -975,8 +1090,11 @@ async def resolve_carrier_lineage(
     nodes: list[dict] = [focal_node]
     edges: list[dict] = []
     visited: set[str] = {focal["id"]}
-    # Per-carrier trait_ids cache so we don't re-fetch within a BFS.
-    trait_cache: dict[str, list[str]] = {focal["id"]: await _carrier_trait_ids(conn, focal["id"])}
+    # Per-carrier trait info cache so we don't re-fetch within a BFS.
+    # See `_carrier_trait_info` for shape.
+    trait_cache: dict[str, dict] = {
+        focal["id"]: await _carrier_trait_info(conn, focal["id"])
+    }
     # Per-carrier date bounds cache (frontier carriers need them for the
     # temporal predicate without re-querying).
     bounds: dict[str, tuple[int, int]] = {
@@ -992,14 +1110,15 @@ async def resolve_carrier_lineage(
             next_frontier: list[str] = []
             for src_id in frontier:
                 src_min, src_max = bounds[src_id]
-                src_traits = trait_cache.get(src_id) or []
-                if not src_traits:
-                    src_traits = await _carrier_trait_ids(conn, src_id)
-                    trait_cache[src_id] = src_traits
+                src_info = trait_cache.get(src_id)
+                if src_info is None:
+                    src_info = await _carrier_trait_info(conn, src_id)
+                    trait_cache[src_id] = src_info
                 neighbors = await _one_hop_lineage(
                     conn,
                     source_carrier_id=src_id,
-                    source_trait_ids=src_traits,
+                    source_dominant=src_info["dominant"],
+                    source_substantial=src_info["substantial"],
                     source_date_min=src_min,
                     source_date_max=src_max,
                     side=side,

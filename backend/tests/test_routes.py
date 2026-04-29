@@ -400,6 +400,58 @@ async def test_world_includes_regional_gap_filler_carriers(client):
 
 
 @pytest.mark.asyncio
+async def test_carrier_lineage_future_excludes_sibling_populations(client):
+    """
+    Regression test: the future of First Americans (CARR_PALEO_AMER_15K)
+    should be Native-American populations only — not sibling populations
+    that share an upstream ANE component (Saami, Yamnaya, Steppe MLBA, etc.).
+
+    Earlier the BFS used "any shared trait" as the edge criterion, which
+    pulled in dozens of Eurasian populations as descendants because they
+    happened to carry ANE through Mal'ta-derived gene flow. The dominant-
+    trait alignment rule fixes this: a descendant must carry the focal's
+    *dominant* trait (AMER_NA) at >= 2%, which Saami / Yamnaya / Han do not.
+    """
+    r = await client.get(
+        "/carrier/CARR_PALEO_AMER_15K/lineage",
+        params={"year": -12000, "direction": "future", "max_depth": 5, "max_per_hop": 6},
+    )
+    assert r.status_code == 200
+    ids = {n["id"] for n in r.json()["nodes"]}
+
+    # Sibling populations that share ANE but not AMER_NA must NOT appear.
+    forbidden = {
+        "CARR_HIST_FOR_SAAMI_ANCESTRAL",
+        "CARR_HIST_GAP_YAKUT",
+        "CARR_HIST_MODERN_HAN",
+        "CARR_HIST_VEDIC_ARYAN",
+        "CARR_NW_SOUTH_ASIA_LATE_BRONZE",
+    }
+    leaked = forbidden & ids
+    assert not leaked, (
+        f"Future of First Americans should be Native-American-only; "
+        f"these sibling populations leaked through: {leaked}"
+    )
+
+    # Genuine Native-American descendants should still appear.
+    expected_some_of = {
+        "CARR_HIST_INCA",
+        "CARR_HIST_AZTEC",
+        "CARR_HIST_GAP_MAYA_CLASSICAL",
+        "CARR_HIST_MAYA_CLASSICAL",
+        "CARR_HIST_HOL_PRECLASSIC_MAYA",
+        "CARR_HIST_HOL_OLMEC",
+        "CARR_HIST_GAP_TEOTIHUACAN",
+        "CARR_HIST_FOR_ANDEAN_ARCHAIC",
+        "CARR_HIST_MODERN_NATIVE_AMER",
+    }
+    assert ids & expected_some_of, (
+        f"Future of First Americans should include classical Native American "
+        f"populations; got {ids}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_carrier_lineage_multi_hop_traces_to_neanderthal(client):
     """
     The multi-hop lineage BFS should let the user trace from a modern

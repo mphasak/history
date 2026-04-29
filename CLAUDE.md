@@ -151,6 +151,32 @@ ice sheets, where sea-level + bathymetry doesn't apply. A snapshot with
 `/paleo-basemap` endpoint uses `DISTINCT ON (feature_id) ... ORDER BY feature_id,
 as_of_year DESC` so the NULL row wins for years past disappearance.
 
+### Lineage edges use dominant-trait alignment, not "any shared trait"
+
+The BFS for `/carrier/{id}/lineage` requires real ancestry contribution
+between consecutive nodes — sharing an upstream component is **not**
+enough, because that pulls in sibling populations that descend from a
+common ancestor as if they were each other's ancestors/descendants.
+
+Concretely:
+- **Past hop** (find ancestors of source `S`): candidate `A`'s
+  *dominant* trait must be one of `S`'s *substantial* traits (fraction
+  ≥ 0.02). So Bronze NW South Asia (ANI 0.55, ASI 0.30, STEPPE_MLBA
+  0.15) finds ancestors whose dominant ancestry is ANI / ASI /
+  STEPPE_MLBA — Iranian Neolithic, S Asian Mesolithic, Yamnaya.
+- **Future hop** (find descendants of source `S`): candidate `D` must
+  carry `S`'s *dominant* trait at fraction ≥ 0.02. So First Americans
+  (dominant=AMER_NA) finds Inca / Maya / Modern S. Asian Mestizo / SF
+  Bay Area, but **not** Saami / Yamnaya / Han, who don't carry AMER_NA
+  at all even though they share ANE upstream.
+
+The 0.02 threshold is low enough to admit archaic admixture
+(NEANDERTHAL / DENISOVAN typically 1–4%), so deep traces from any
+non-African modern population back to Neanderthal still work. Spatial
+fallback (~3000 km radius) only kicks in when the source has no
+trait_mix data at all (Homo erectus and other deep-paleolithic
+hominins).
+
 ### Lineage mode is a map-wide mode, not just an overlay
 
 When `lineageMode !== 'off'` and a carrier is selected, lineage mode
