@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
-import { WorldResponse, CarrierView, TraitObservationView, PaleoFeature } from '../api'
+import { WorldResponse, CarrierView, TraitObservationView, PaleoFeature, CarrierLineageResponse } from '../api'
 import { useStore } from '../state'
 import { computeDiff } from './DiffOverlay'
 
@@ -78,6 +78,9 @@ interface MapInstanceProps {
    * (single, side-by-side, diff) share one fetch. Undefined when labelMode
    * isn't "historical". */
   historicalPlaces?: { id: string; display_name: string; centroid: { lat: number; lon: number }; kind: string | null }[]
+  /** Past/future lineage for the selected carrier — drawn as connector lines
+   * + amber (past) / cyan (future) endpoint dots. Null when lineage mode is off. */
+  lineage?: CarrierLineageResponse | null
   perspectiveId: string
   diffCarrierIds?: Set<string>
   onCarrierClick: (carrierId: string) => void
@@ -94,6 +97,7 @@ function useMapInstance({
   shelfVisible,
   paleoCoastlines,
   historicalPlaces,
+  lineage,
   diffCarrierIds,
   onCarrierClick,
   onMapClick,
@@ -388,6 +392,77 @@ function useMapInstance({
       })
       map.on('mouseleave', 'carriers-circle', () => {
         map.getCanvas().style.cursor = ''
+      })
+
+      // Lineage connector lines + endpoint nodes for the selected carrier.
+      // Past edges render amber (looking back), future edges cyan (looking
+      // forward). Drawn ABOVE the carrier circles so the connectors don't
+      // get hidden behind the dots.
+      map.addSource('lineage-edges', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'lineage-edges-line',
+        type: 'line',
+        source: 'lineage-edges',
+        paint: {
+          'line-color': [
+            'match', ['get', 'side'],
+            'past', '#fbbf24',     // amber
+            'future', '#22d3ee',   // cyan
+            '#9ca3af',
+          ],
+          'line-width': 2,
+          'line-opacity': 0.85,
+          'line-dasharray': [2, 2],
+        },
+      })
+
+      map.addSource('lineage-nodes', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'lineage-nodes-circle',
+        type: 'circle',
+        source: 'lineage-nodes',
+        paint: {
+          'circle-radius': [
+            'case', ['==', ['get', 'role'], 'focal'], 11, 7,
+          ],
+          'circle-color': [
+            'match', ['get', 'role'],
+            'focal', '#facc15',
+            'past', '#fbbf24',
+            'future', '#22d3ee',
+            '#9ca3af',
+          ],
+          'circle-stroke-color': '#0f172a',
+          'circle-stroke-width': 2,
+          'circle-opacity': 0.95,
+        },
+      })
+      map.addLayer({
+        id: 'lineage-nodes-label',
+        type: 'symbol',
+        source: 'lineage-nodes',
+        layout: {
+          'text-field': ['get', 'display_name'],
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 10,
+          'text-offset': [0, 1.3],
+          'text-anchor': 'top',
+          'text-allow-overlap': false,
+          'text-optional': true,
+          'text-padding': 4,
+        },
+        paint: {
+          'text-color': '#fde68a',
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1.4,
+        },
+        minzoom: 2,
       })
 
       // Historical place labels (city / region names that match the queried
@@ -686,6 +761,82 @@ function useMapInstance({
     else map.once('load', apply)
   }, [paleoFeatures])
 
+  // Update lineage edges + nodes. Edges are LineString features connecting
+  // the focal carrier centroid to each ancestor (side='past') and descendant
+  // (side='future'). Nodes include the focal point (role='focal') so the user
+  // can see which carrier the lineage anchors on.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const edgeSrc = map.getSource('lineage-edges') as maplibregl.GeoJSONSource | undefined
+      const nodeSrc = map.getSource('lineage-nodes') as maplibregl.GeoJSONSource | undefined
+      if (!edgeSrc || !nodeSrc) return
+
+      const edges: GeoJSON.Feature[] = []
+      const nodes: GeoJSON.Feature[] = []
+      if (lineage?.focal?.centroid) {
+        const f = lineage.focal
+        nodes.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [f.centroid!.lon, f.centroid!.lat] },
+          properties: {
+            id: f.id,
+            display_name: f.display_name,
+            role: 'focal',
+          },
+        })
+        const focalLngLat: [number, number] = [f.centroid!.lon, f.centroid!.lat]
+        for (const a of lineage.ancestors) {
+          if (!a.centroid) continue
+          edges.push({
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [[a.centroid.lon, a.centroid.lat], focalLngLat],
+            },
+            properties: { side: 'past', id: a.id, shared: a.shared_trait_ids.join(',') },
+          })
+          nodes.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [a.centroid.lon, a.centroid.lat] },
+            properties: {
+              id: a.id,
+              display_name: a.display_name,
+              role: 'past',
+              date_max_year: a.date_max_year,
+            },
+          })
+        }
+        for (const d of lineage.descendants) {
+          if (!d.centroid) continue
+          edges.push({
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: [focalLngLat, [d.centroid.lon, d.centroid.lat]],
+            },
+            properties: { side: 'future', id: d.id, shared: d.shared_trait_ids.join(',') },
+          })
+          nodes.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [d.centroid.lon, d.centroid.lat] },
+            properties: {
+              id: d.id,
+              display_name: d.display_name,
+              role: 'future',
+              date_min_year: d.date_min_year,
+            },
+          })
+        }
+      }
+      edgeSrc.setData({ type: 'FeatureCollection', features: edges })
+      nodeSrc.setData({ type: 'FeatureCollection', features: nodes })
+    }
+    if (map.getSource('lineage-edges')) apply()
+    else map.once('load', apply)
+  }, [lineage])
+
   // Update historical-places source + visibility together. Same combined
   // pattern as the shelf effect: data and visibility flip in lockstep so
   // toggling the label mode never leaves stale labels on screen.
@@ -767,6 +918,7 @@ function SingleMap({
   shelfVisible,
   paleoCoastlines,
   historicalPlaces,
+  lineage,
   perspectiveId,
   onCarrierClick,
   onMapClick,
@@ -778,6 +930,7 @@ function SingleMap({
   shelfVisible: boolean
   paleoCoastlines: GeoJSON.FeatureCollection | null
   historicalPlaces: MapInstanceProps['historicalPlaces']
+  lineage: CarrierLineageResponse | null
   perspectiveId: string
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -792,6 +945,7 @@ function SingleMap({
     shelfVisible,
     paleoCoastlines,
     historicalPlaces,
+    lineage,
     perspectiveId,
     onCarrierClick,
     onMapClick,
@@ -812,6 +966,8 @@ interface MapProps {
   paleoCoastlines?: GeoJSON.FeatureCollection | null
   /** Era-appropriate place labels — only populated when labelMode='historical'. */
   historicalPlaces?: MapInstanceProps['historicalPlaces']
+  /** Past/future lineage for the selected carrier — null when off. */
+  lineage?: CarrierLineageResponse | null
 }
 
 export function WorldMap({
@@ -821,6 +977,7 @@ export function WorldMap({
   shelfGeojson = null,
   paleoCoastlines = null,
   historicalPlaces = [],
+  lineage = null,
 }: MapProps) {
   const shelfVisible = (shelfGeojson?.features?.length ?? 0) > 0
   const renderMode = useStore((s) => s.renderMode)
@@ -865,6 +1022,7 @@ export function WorldMap({
         shelfVisible={shelfVisible}
         paleoCoastlines={paleoCoastlines}
         historicalPlaces={historicalPlaces}
+        lineage={lineage}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
       />
@@ -887,6 +1045,7 @@ export function WorldMap({
           shelfVisible={shelfVisible}
           paleoCoastlines={paleoCoastlines}
           historicalPlaces={historicalPlaces}
+          lineage={lineage}
           diffIds={diffIds}
           onCarrierClick={handleCarrierClick}
           onMapClick={handleMapClick}
@@ -909,6 +1068,7 @@ export function WorldMap({
         shelfVisible={shelfVisible}
         paleoCoastlines={paleoCoastlines}
         historicalPlaces={historicalPlaces}
+        lineage={lineage}
         perspectiveId={pid}
         onCarrierClick={handleCarrierClick}
         onMapClick={handleMapClick}
@@ -925,6 +1085,7 @@ function SideBySideMap({
   shelfVisible,
   paleoCoastlines,
   historicalPlaces,
+  lineage,
   onCarrierClick,
   onMapClick,
 }: {
@@ -935,6 +1096,7 @@ function SideBySideMap({
   shelfVisible: boolean
   paleoCoastlines: GeoJSON.FeatureCollection | null
   historicalPlaces: MapInstanceProps['historicalPlaces']
+  lineage: CarrierLineageResponse | null
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
 }) {
@@ -955,6 +1117,7 @@ function SideBySideMap({
     shelfVisible,
     paleoCoastlines,
     historicalPlaces,
+    lineage,
     perspectiveId: leftPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -971,6 +1134,7 @@ function SideBySideMap({
     shelfVisible,
     paleoCoastlines,
     historicalPlaces,
+    lineage,
     perspectiveId: rightPid,
     diffCarrierIds: diffIds,
     onCarrierClick,
@@ -1010,6 +1174,7 @@ function DiffMapUpdater({
   shelfVisible,
   paleoCoastlines,
   historicalPlaces,
+  lineage,
   diffIds,
   onCarrierClick,
   onMapClick,
@@ -1021,6 +1186,7 @@ function DiffMapUpdater({
   shelfVisible: boolean
   paleoCoastlines: GeoJSON.FeatureCollection | null
   historicalPlaces: MapInstanceProps['historicalPlaces']
+  lineage: CarrierLineageResponse | null
   diffIds: Set<string>
   onCarrierClick: (id: string) => void
   onMapClick: (lat: number, lon: number) => void
@@ -1034,6 +1200,7 @@ function DiffMapUpdater({
     shelfVisible,
     paleoCoastlines,
     historicalPlaces,
+    lineage,
     perspectiveId: 'diff',
     diffCarrierIds: diffIds,
     onCarrierClick,

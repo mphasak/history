@@ -10,6 +10,10 @@ export type VizMode = 'pointwise' | 'fill'
  */
 export type LabelMode = 'modern' | 'historical' | 'none'
 
+/** Lineage paths for the selected carrier — past (ancestors), future
+ * (descendants), or both/off. Toggleable from the App header. */
+export type LineageMode = 'off' | 'past' | 'future' | 'both'
+
 export interface ClickPoint {
   lat: number
   lon: number
@@ -40,6 +44,9 @@ interface HistorySimState {
 
   labelMode: LabelMode
   setLabelMode: (mode: LabelMode) => void
+
+  lineageMode: LineageMode
+  setLineageMode: (mode: LineageMode) => void
 }
 
 // Read initial year + perspectives from URL params
@@ -83,6 +90,9 @@ export const useStore = create<HistorySimState>((set) => ({
 
   labelMode: 'modern',
   setLabelMode: (mode) => set({ labelMode: mode }),
+
+  lineageMode: 'off',
+  setLineageMode: (mode) => set({ lineageMode: mode }),
 }))
 
 function updateUrl(changes: { year?: number; perspectives?: string[] }) {

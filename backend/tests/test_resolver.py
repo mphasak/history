@@ -8,7 +8,12 @@ These tests verify the core design invariant: two Perspectives active on the
 same (year, bbox) query return distinct, non-collapsed views.
 """
 import pytest
-from src.resolver import resolve_world, resolve_claim, resolve_carrier_claims
+from src.resolver import (
+    resolve_world,
+    resolve_claim,
+    resolve_carrier_claims,
+    resolve_carrier_lineage,
+)
 
 
 BBOX_NW_SOUTH_ASIA = [60.0, 20.0, 90.0, 40.0]
@@ -292,3 +297,39 @@ async def test_resolve_carrier_claims_surfaces_provenance_for_romans(aconn):
     assert "ANTONIO_2019" in sources, (
         f"Expected ANTONIO_2019 in Roman provenance sources; got {sources}"
     )
+
+
+@pytest.mark.asyncio
+async def test_resolve_carrier_lineage_descendants_share_indo_aryan_traits(aconn):
+    """
+    Forward lineage from the NW South Asia Bronze Age carrier should surface
+    later Indian populations (Vedic, Mauryan, Mughal, Modern South Asian) and
+    those edges should carry shared trait_ids that include STEPPE_MLBA — the
+    whole point of the Indo-Aryan story.
+    """
+    res = await resolve_carrier_lineage(
+        aconn, CARRIER_ID, year=-1700, direction="future", limit_per_side=10
+    )
+    assert res["focal"] is not None
+    descendant_ids = {d["id"] for d in res["descendants"]}
+    assert "CARR_HIST_VEDIC_ARYAN" in descendant_ids, (
+        f"Vedic Aryans should be a descendant of {CARRIER_ID}; got {descendant_ids}"
+    )
+
+    vedic = next(d for d in res["descendants"] if d["id"] == "CARR_HIST_VEDIC_ARYAN")
+    assert "STEPPE_MLBA" in vedic["shared_trait_ids"], (
+        "Steppe ancestry should bridge bronze NW South Asians and the Vedic Aryans"
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_carrier_lineage_direction_filter(aconn):
+    """When direction=past, descendants is empty (and vice versa)."""
+    past = await resolve_carrier_lineage(
+        aconn, CARRIER_ID, year=-1700, direction="past", limit_per_side=5
+    )
+    assert past["descendants"] == []
+    future = await resolve_carrier_lineage(
+        aconn, CARRIER_ID, year=-1700, direction="future", limit_per_side=5
+    )
+    assert future["ancestors"] == []

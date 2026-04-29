@@ -212,6 +212,34 @@ class CarrierTimelineResponse(BaseModel):
     timeline: list[CarrierTimelineSnapshot]
 
 
+class CarrierLineageNode(BaseModel):
+    """A single ancestor or descendant carrier in the lineage view."""
+    id: str
+    display_name: str
+    type: str
+    date_min_year: int
+    date_max_year: int
+    centroid: GeoPoint | None
+    # The trait_ids that bridge this carrier and the focal one. Empty when the
+    # node was found via the spatial-fallback path (focal had no traits).
+    shared_trait_ids: list[str] = []
+
+
+class CarrierLineageResponse(BaseModel):
+    """Past + future lineage view for a focal carrier at a queried year.
+
+    Ancestors are carriers that ended before the focal began and share at
+    least one trait with the focal's trait mix; descendants are the symmetric
+    forward-in-time case.
+    """
+    carrier_id: str
+    year: int
+    direction: str  # "past" | "future" | "both"
+    focal: CarrierLineageNode | None
+    ancestors: list[CarrierLineageNode]
+    descendants: list[CarrierLineageNode]
+
+
 class PaleoBasemapResponse(BaseModel):
     year: int
     sea_level_meters: float | None

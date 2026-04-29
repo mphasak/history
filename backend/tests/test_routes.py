@@ -308,3 +308,46 @@ async def test_world_carrier_count_grows_with_historical_seed(client):
     assert len(carriers) >= 10, (
         f"Expected >=10 carriers at year 0 once 005 is seeded; got {len(carriers)}"
     )
+
+
+@pytest.mark.asyncio
+async def test_carrier_lineage_endpoint_indo_aryan(client):
+    """
+    /carrier/{id}/lineage returns ancestors and descendants for a carrier at
+    a queried year. For the bronze-age NW South Asia carrier, descendants
+    should include the Vedic Aryans, Mauryans and modern South Asians, and
+    the Vedic edge should carry STEPPE_MLBA as a shared trait.
+    """
+    r = await client.get(
+        "/carrier/CARR_NW_SOUTH_ASIA_LATE_BRONZE/lineage",
+        params={"year": -1700, "direction": "both", "limit_per_side": 10},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["focal"]["id"] == "CARR_NW_SOUTH_ASIA_LATE_BRONZE"
+
+    descendant_ids = {d["id"] for d in data["descendants"]}
+    assert "CARR_HIST_VEDIC_ARYAN" in descendant_ids, (
+        f"Vedic Aryans missing from lineage descendants; got {descendant_ids}"
+    )
+
+    vedic = next(d for d in data["descendants"] if d["id"] == "CARR_HIST_VEDIC_ARYAN")
+    assert "STEPPE_MLBA" in vedic["shared_trait_ids"]
+
+
+@pytest.mark.asyncio
+async def test_carrier_lineage_direction_param(client):
+    """direction=past suppresses descendants and vice versa."""
+    r = await client.get(
+        "/carrier/CARR_NW_SOUTH_ASIA_LATE_BRONZE/lineage",
+        params={"year": -1700, "direction": "past"},
+    )
+    assert r.status_code == 200
+    assert r.json()["descendants"] == []
+
+    r = await client.get(
+        "/carrier/CARR_NW_SOUTH_ASIA_LATE_BRONZE/lineage",
+        params={"year": -1700, "direction": "future"},
+    )
+    assert r.status_code == 200
+    assert r.json()["ancestors"] == []

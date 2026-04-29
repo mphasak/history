@@ -12,8 +12,9 @@ import {
   useContinentalShelf,
   usePaleoCoastlines,
   useHistoricalPlaces,
+  useCarrierLineage,
 } from './hooks/useWorldQuery'
-import type { RenderMode, VizMode, LabelMode } from './state'
+import type { RenderMode, VizMode, LabelMode, LineageMode } from './state'
 
 export default function App() {
   const renderMode = useStore((s) => s.renderMode)
@@ -22,6 +23,8 @@ export default function App() {
   const setVizMode = useStore((s) => s.setVizMode)
   const labelMode = useStore((s) => s.labelMode)
   const setLabelMode = useStore((s) => s.setLabelMode)
+  const lineageMode = useStore((s) => s.lineageMode)
+  const setLineageMode = useStore((s) => s.setLineageMode)
   const selectedCarrierId = useStore((s) => s.selectedCarrierId)
   const clickPoint = useStore((s) => s.clickPoint)
   const { data: worldData, loading, error } = useWorldQuery()
@@ -31,6 +34,7 @@ export default function App() {
   )
   const { data: paleoCoastlines } = usePaleoCoastlines()
   const { data: historicalPlaces } = useHistoricalPlaces(labelMode === 'historical')
+  const { data: lineage } = useCarrierLineage()
 
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white">
@@ -102,6 +106,40 @@ export default function App() {
           </div>
         </div>
 
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[10px] uppercase tracking-wide text-gray-500"
+            title="Show ancestor / descendant populations of the selected carrier as connector lines on the map. Requires a selected carrier."
+          >
+            Lineage
+          </span>
+          <div className="flex gap-1">
+            {(['off', 'past', 'future', 'both'] as LineageMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setLineageMode(mode)}
+                disabled={mode !== 'off' && !selectedCarrierId}
+                className={`text-xs px-2 py-1 rounded transition-colors ${
+                  lineageMode === mode
+                    ? 'bg-cyan-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                title={
+                  mode === 'off'
+                    ? 'Hide lineage'
+                    : mode === 'past'
+                      ? 'Show ancestor populations only'
+                      : mode === 'future'
+                        ? 'Show descendant populations only'
+                        : 'Show both ancestors and descendants'
+                }
+              >
+                {mode === 'off' ? 'Off' : mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {loading && (
           <span className="text-xs text-gray-400 ml-auto">Fetching world…</span>
         )}
@@ -123,6 +161,7 @@ export default function App() {
           seaLevelMeters={paleo?.sea_level_meters ?? null}
           paleoCoastlines={paleoCoastlines}
           historicalPlaces={historicalPlaces}
+          lineage={lineage}
         />
 
         {/* Perspective picker — top-left overlay */}

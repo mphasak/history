@@ -12,11 +12,15 @@ from ..models import (
     ClaimSourceEntry,
     CarrierThreatsResponse,
     CarrierThreat,
+    CarrierLineageResponse,
+    CarrierLineageNode,
+    GeoPoint,
 )
 from ..resolver import (
     resolve_carrier_timeline,
     resolve_carrier_claims,
     resolve_carrier_threats,
+    resolve_carrier_lineage,
 )
 
 router = APIRouter()
@@ -154,4 +158,45 @@ async def get_carrier_threats(
     ]
     return CarrierThreatsResponse(
         carrier_id=carrier_id, year=year, threats=threats
+    )
+
+
+@router.get("/carrier/{carrier_id}/lineage", response_model=CarrierLineageResponse)
+async def get_carrier_lineage(
+    carrier_id: str,
+    year: int = Query(..., description="Year of focus (negative = BCE)."),
+    direction: str = Query(
+        "both", description="Which side(s) to return: past | future | both."
+    ),
+    limit_per_side: int = Query(12, ge=1, le=50),
+    conn: AsyncConnection = Depends(get_conn),
+):
+    row = await conn.execute("SELECT id FROM carrier WHERE id = %s", (carrier_id,))
+    if not await row.fetchone():
+        raise HTTPException(404, f"Carrier {carrier_id!r} not found")
+    if direction.lower() not in {"past", "future", "both"}:
+        raise HTTPException(400, "direction must be past|future|both")
+
+    raw = await resolve_carrier_lineage(
+        conn, carrier_id, year, direction=direction.lower(), limit_per_side=limit_per_side
+    )
+
+    def _node(n: dict) -> CarrierLineageNode:
+        return CarrierLineageNode(
+            id=n["id"],
+            display_name=n["display_name"],
+            type=n["type"],
+            date_min_year=n["date_min_year"],
+            date_max_year=n["date_max_year"],
+            centroid=GeoPoint(**n["centroid"]) if n.get("centroid") else None,
+            shared_trait_ids=n.get("shared_trait_ids") or [],
+        )
+
+    return CarrierLineageResponse(
+        carrier_id=carrier_id,
+        year=year,
+        direction=direction.lower(),
+        focal=_node(raw["focal"]) if raw.get("focal") else None,
+        ancestors=[_node(n) for n in raw.get("ancestors", [])],
+        descendants=[_node(n) for n in raw.get("descendants", [])],
     )

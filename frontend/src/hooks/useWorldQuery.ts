@@ -5,6 +5,7 @@ import {
   Perspective,
   PaleoBasemapResponse,
   HistoricalPlace,
+  CarrierLineageResponse,
 } from '../api'
 import { useStore } from '../state'
 
@@ -245,6 +246,49 @@ export function useHistoricalPlaces(enabled: boolean): {
       })
     return () => { cancelled = true }
   }, [year, enabled])
+  return { data, loading }
+}
+
+/**
+ * Past/future lineage for the currently selected carrier at the slider year.
+ * No-ops to a null fetch when lineageMode is "off" or no carrier is selected,
+ * so toggling Off is cheap and the map clears immediately.
+ */
+export function useCarrierLineage(): {
+  data: CarrierLineageResponse | null
+  loading: boolean
+} {
+  const lineageMode = useStore((s) => s.lineageMode)
+  const carrierId = useStore((s) => s.selectedCarrierId)
+  const year = useStore((s) => s.year)
+  const [data, setData] = useState<CarrierLineageResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (lineageMode === 'off' || !carrierId) {
+      setData(null)
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    api
+      .carrierLineage(carrierId, year, lineageMode)
+      .then((res) => {
+        if (!cancelled) {
+          setData(res)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setData(null)
+          setLoading(false)
+        }
+      })
+    return () => { cancelled = true }
+  }, [lineageMode, carrierId, year])
+
   return { data, loading }
 }
 

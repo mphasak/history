@@ -296,11 +296,11 @@ the lifetime of the map, so source existence is the right gate.
 
 | File | Purpose |
 |------|---------|
-| `backend/src/resolver.py` | Core Perspective resolution logic — `resolve_world`, `resolve_world_at_point`, `resolve_claim`, `resolve_carrier_timeline`, `resolve_carrier_claims`, `_compute_disagreed_carrier_ids` |
+| `backend/src/resolver.py` | Core Perspective resolution logic — `resolve_world`, `resolve_world_at_point`, `resolve_claim`, `resolve_carrier_timeline`, `resolve_carrier_claims`, `resolve_carrier_lineage`, `_compute_disagreed_carrier_ids` |
 | `backend/src/perspectives.py` | `GET /perspectives` endpoint |
 | `backend/src/routes/world.py` | `GET /world` (with `disagreed_carrier_ids`) + `GET /world/at` |
 | `backend/src/routes/basemap.py` | `GET /paleo-basemap` — paleo feature polygons + interpolated sea level / temp anomaly |
-| `backend/src/routes/carrier.py` | `GET /carrier/{id}/timeline` and `GET /carrier/{id}/claims` |
+| `backend/src/routes/carrier.py` | `GET /carrier/{id}/timeline`, `/claims`, `/threats`, and `/lineage` (past + future ancestor/descendant carriers) |
 | `backend/src/routes/claim.py` | `GET /claim/:id` — per-Perspective claim stances |
 | `backend/src/routes/gplates.py` | `GET /paleo-coastlines` — proxied GPlates for deep time |
 | `db/001_schema.sql` | Full DDL (generated from schema_v0.3.md) |

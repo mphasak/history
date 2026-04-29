@@ -179,6 +179,27 @@ export interface HistoricalPlacesResponse {
   places: HistoricalPlace[]
 }
 
+export interface CarrierLineageNode {
+  id: string
+  display_name: string
+  type: string
+  date_min_year: number
+  date_max_year: number
+  centroid: GeoPoint | null
+  /** trait_ids that bridge this node to the focal carrier; empty when the node
+   * was matched via the spatial-fallback (focal had no recorded traits). */
+  shared_trait_ids: string[]
+}
+
+export interface CarrierLineageResponse {
+  carrier_id: string
+  year: number
+  direction: 'past' | 'future' | 'both'
+  focal: CarrierLineageNode | null
+  ancestors: CarrierLineageNode[]
+  descendants: CarrierLineageNode[]
+}
+
 export interface CarrierTimelineSnapshot {
   as_of_year: number
   domain: string
@@ -231,6 +252,14 @@ export const api = {
 
   carrierThreats: (carrierId: string, year: number): Promise<CarrierThreatsResponse> =>
     get(`/carrier/${carrierId}/threats`, { year }),
+
+  carrierLineage: (
+    carrierId: string,
+    year: number,
+    direction: 'past' | 'future' | 'both' = 'both',
+    limitPerSide = 12,
+  ): Promise<CarrierLineageResponse> =>
+    get(`/carrier/${carrierId}/lineage`, { year, direction, limit_per_side: limitPerSide }),
 
   historicalPlaces: (year: number): Promise<HistoricalPlacesResponse> =>
     get('/historical-places', { year }),
