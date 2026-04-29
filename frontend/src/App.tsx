@@ -6,6 +6,8 @@ import { PerspectivePicker } from './components/PerspectivePicker'
 import { DetailPanel } from './components/DetailPanel'
 import { LineagePreviewPanel } from './components/LineagePreviewPanel'
 import { ClickPointPanel } from './components/ClickPointPanel'
+import { SearchBox } from './components/SearchBox'
+import { YearHeader } from './components/YearHeader'
 import { DiffLegend } from './components/DiffOverlay'
 import { Legend } from './components/Legend'
 import {
@@ -103,6 +105,7 @@ export default function App() {
       {/* Header */}
       <header className="flex items-center px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0 gap-4">
         <h1 className="font-bold text-sm text-white">Human History Simulator</h1>
+        <SearchBox />
 
         <div className="flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-wide text-gray-500">Viz</span>
@@ -276,6 +279,13 @@ export default function App() {
         {/* Perspective picker — top-left overlay */}
         <div className="absolute top-3 left-3 z-10">
           <PerspectivePicker />
+        </div>
+
+        {/* Year + era header — top-center overlay. Big, glanceable
+            "where am I in time?" indicator that doesn't require reading
+            the slider tick. */}
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+          <YearHeader year={year} />
         </div>
 
         {/* Viz legend — always visible bottom-left */}

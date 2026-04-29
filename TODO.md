@@ -16,3 +16,4 @@
 - think hard about data improvements, then ship
 - carrier images: many resolve to maps / coats-of-arms instead of photos of people; refine title overrides so the inspector shows actual people whenever Wikipedia has one. Also surface a "Read on Wikipedia" link in the panel.
 - pair "Threats" with a "Plight" narrative (1-2 paragraphs): everyday life, origin, end.
+- update the README to reflect current design; consolidate AGENTS.md vs CLAUDE.md so they don't repeat each other.

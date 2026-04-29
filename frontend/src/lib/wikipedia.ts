@@ -21,6 +21,18 @@
  * Wikipedia page title cleanly. Keep this minimal — favor adding rows
  * here only for carriers whose UI labels deviate from the Wikipedia
  * convention (e.g. "Modern South Asians" → "South Asian people"). */
+/**
+ * Picking Wikipedia article titles is a quiet design choice. Articles
+ * about empires / dynasties / cultures often lead with a *map* or a
+ * coat-of-arms in the infobox, which makes for an unhelpful inspector
+ * thumbnail. Where a "<People> people" / "<Foo> language" / "<Bar> art"
+ * article exists with a representative *human* image, we prefer it.
+ *
+ * E.g. "Han_dynasty" → leads with a dynastic-territory map → so we use
+ * "Han_Chinese" instead, which leads with a portrait. "Polynesians" →
+ * leads with a map of the Polynesian Triangle → so we use "Polynesian_culture"
+ * or a more specific "Native_Hawaiians" / "Maori_people" entry.
+ */
 export const CARRIER_WIKIPEDIA_TITLES: Record<string, string> = {
   // Indo-Aryan demo carriers
   CARR_HIST_VEDIC_ARYAN: 'Indo-Aryan_migrations',
@@ -44,71 +56,73 @@ export const CARRIER_WIKIPEDIA_TITLES: Record<string, string> = {
   CARR_CHG_MESO: 'Caucasus_hunter-gatherer',
   CARR_ANATOLIAN_FARMER: 'Early_European_Farmers',
   CARR_IRAN_NEOLITHIC: 'Iranian_Neolithic',
-  // Historical empires
-  CARR_HIST_ROMAN: 'Roman_Empire',
-  CARR_HIST_GREEK: 'Ancient_Greece',
-  CARR_HIST_BYZANTINE: 'Byzantine_Empire',
-  CARR_HIST_OTTOMAN: 'Ottoman_Empire',
-  CARR_HIST_HAN: 'Han_dynasty',
+  // Historical empires — prefer "<X> people" articles where they exist
+  // and have a portrait / human image in the lead.
+  CARR_HIST_ROMAN: 'Romans',                     // "Roman Empire" leads with a map
+  CARR_HIST_GREEK: 'Ancient_Greeks',
+  CARR_HIST_GREEK_CLASSICAL: 'Ancient_Greeks',
+  CARR_HIST_BYZANTINE: 'Byzantine_people',
+  CARR_HIST_OTTOMAN: 'Ottomans',                 // people
+  CARR_HIST_HAN: 'Han_Chinese',                  // not Han_dynasty (map)
   CARR_HIST_TANG: 'Tang_dynasty',
-  CARR_HIST_MONGOL: 'Mongol_Empire',
-  CARR_HIST_MAYA_CLASSICAL: 'Maya_civilization',
-  CARR_HIST_AZTEC: 'Aztec_Empire',
-  CARR_HIST_INCA: 'Inca_Empire',
-  CARR_HIST_KHMER: 'Khmer_Empire',
-  CARR_HIST_AKSUMITE: 'Kingdom_of_Aksum',
+  CARR_HIST_MONGOL: 'Mongols',
+  CARR_HIST_MAYA_CLASSICAL: 'Maya_peoples',      // not Maya_civilization (map)
+  CARR_HIST_AZTEC: 'Aztecs',                     // not Aztec_Empire
+  CARR_HIST_INCA: 'Inca_people',                 // not Inca_Empire
+  CARR_HIST_KHMER: 'Khmer_people',
+  CARR_HIST_AKSUMITE: 'Aksumites',
   CARR_HIST_ABBASID: 'Abbasid_Caliphate',
-  CARR_HIST_ACHAEMENID: 'Achaemenid_Empire',
-  CARR_HIST_SASANIAN: 'Sasanian_Empire',
-  CARR_HIST_BABYLONIAN: 'Babylonia',
-  CARR_HIST_ASSYRIAN: 'Assyria',
-  CARR_HIST_PHOENICIAN: 'Phoenicia',
+  CARR_HIST_ACHAEMENID: 'Persians',              // people, not "Achaemenid Empire" (map)
+  CARR_HIST_SASANIAN: 'Sasanian_people',
+  CARR_HIST_BABYLONIAN: 'Babylonians',
+  CARR_HIST_ASSYRIAN: 'Assyrian_people',
+  CARR_HIST_PHOENICIAN: 'Phoenicians',
   CARR_HIST_HITTITE: 'Hittites',
   CARR_HIST_SUMERIAN: 'Sumer',
-  CARR_HIST_AKKADIAN: 'Akkadian_Empire',
-  CARR_HIST_EGYPT_OK: 'Old_Kingdom_of_Egypt',
-  CARR_HIST_EGYPT_MK_NK: 'New_Kingdom_of_Egypt',
-  CARR_HIST_NUBIAN_KUSHITE: 'Kingdom_of_Kush',
+  CARR_HIST_AKKADIAN: 'Akkadian_people',
+  CARR_HIST_EGYPT_OK: 'Ancient_Egyptians',       // not "Old Kingdom" (map)
+  CARR_HIST_EGYPT_MK_NK: 'Ancient_Egyptians',
+  CARR_HIST_NUBIAN_KUSHITE: 'Nubians',
   CARR_HIST_VIKING: 'Vikings',
   CARR_HIST_GERMANIC: 'Germanic_peoples',
   CARR_HIST_CELTIC: 'Celts',
   CARR_HIST_SCYTHIAN: 'Scythians',
-  CARR_HIST_TURKIC_GOKTURK: 'Turkic_Khaganate',
-  CARR_HIST_RASHIDUN_UMAYYAD: 'Umayyad_Caliphate',
-  CARR_HIST_SOGDIAN: 'Sogdia',
+  CARR_HIST_TURKIC_GOKTURK: 'G%C3%B6kturks',     // people, not "Khaganate"
+  CARR_HIST_RASHIDUN_UMAYYAD: 'Arabs',
+  CARR_HIST_SOGDIAN: 'Sogdians',                 // people
   CARR_HIST_MODERN_ARAB: 'Arabs',
 
-  // Gap-filler carriers (013 seed)
+  // Gap-filler carriers (013 seed) — prefer "people" articles for human imagery
   CARR_HIST_GAP_MOCHE: 'Moche_culture',
   CARR_HIST_GAP_NAZCA: 'Nazca_culture',
-  CARR_HIST_GAP_WARI: 'Wari_Empire',
+  CARR_HIST_GAP_WARI: 'Wari_culture',             // not Wari_Empire (map)
   CARR_HIST_GAP_TIWANAKU: 'Tiwanaku',
   CARR_HIST_GAP_MARAJOARA: 'Marajoara_culture',
   CARR_HIST_GAP_MAPUCHE: 'Mapuche',
   CARR_HIST_GAP_TEOTIHUACAN: 'Teotihuacan',
-  CARR_HIST_GAP_ZAPOTEC: 'Zapotec_civilization',
+  CARR_HIST_GAP_ZAPOTEC: 'Zapotec_peoples',       // not Zapotec_civilization (map)
   CARR_HIST_GAP_MIXTEC: 'Mixtec',
   CARR_HIST_GAP_TOLTEC: 'Toltec',
-  CARR_HIST_GAP_PUREPECHA: 'Tarascan_state',
+  CARR_HIST_GAP_PUREPECHA: 'Pur%C3%A9pecha',      // people, not Tarascan_state (map)
   CARR_HIST_GAP_TAINO: 'Ta%C3%ADno',
-  CARR_HIST_GAP_BANTU_EXPANSION: 'Bantu_expansion',
+  CARR_HIST_GAP_BANTU_EXPANSION: 'Bantu_peoples', // not Bantu_expansion (map)
   CARR_HIST_GAP_GHANA_EMPIRE: 'Ghana_Empire',
   CARR_HIST_GAP_MALI_EMPIRE: 'Mali_Empire',
-  CARR_HIST_GAP_SONGHAI: 'Songhai_Empire',
+  CARR_HIST_GAP_SONGHAI: 'Songhai_people',         // not Songhai_Empire (map)
   CARR_HIST_GAP_GREAT_ZIMBABWE: 'Great_Zimbabwe',
-  CARR_HIST_GAP_KONGO: 'Kingdom_of_Kongo',
-  CARR_HIST_GAP_SWAHILI_COAST: 'Swahili_culture',
-  CARR_HIST_GAP_ASANTE: 'Ashanti_Empire',
-  CARR_HIST_GAP_ETHIOPIAN_HIGHLAND: 'Solomonic_dynasty',
+  CARR_HIST_GAP_KONGO: 'Kongo_people',             // not Kingdom_of_Kongo (map)
+  CARR_HIST_GAP_SWAHILI_COAST: 'Swahili_people',   // not Swahili_culture
+  CARR_HIST_GAP_ASANTE: 'Ashanti_people',          // not Ashanti_Empire (map)
+  CARR_HIST_GAP_ETHIOPIAN_HIGHLAND: 'Habesha_peoples',
   CARR_HIST_GAP_LAPITA: 'Lapita_culture',
-  CARR_HIST_GAP_POLYNESIAN_EXP: 'Polynesians',
+  CARR_HIST_GAP_POLYNESIAN_EXP: 'Polynesian_culture',
   CARR_HIST_GAP_MAORI: 'M%C4%81ori_people',
   CARR_HIST_GAP_HAWAIIAN: 'Native_Hawaiians',
   CARR_HIST_GAP_YAKUT: 'Yakuts',
   CARR_HIST_GAP_CHUKCHI: 'Chukchi_people',
-  CARR_HIST_GAP_THULE_INUIT: 'Thule_people',
+  CARR_HIST_GAP_THULE_INUIT: 'Inuit',              // Thule_people leads with a map
   CARR_HIST_GAP_MISSISSIPPIAN: 'Mississippian_culture',
-  CARR_HIST_GAP_NAVAJO_APACHE: 'Athabaskan_languages',
+  CARR_HIST_GAP_NAVAJO_APACHE: 'Navajo',           // not Athabaskan_languages
   CARR_HIST_GAP_HAUDENOSAUNEE: 'Iroquois',
 
   // Hominin carriers (added in db/020).
@@ -146,22 +160,22 @@ export const CARRIER_WIKIPEDIA_TITLES: Record<string, string> = {
   CARR_HIST_BRIDGE_ZAGWE: 'Zagwe_dynasty',
 
   // Post-Columbian / colonial carriers (db/017, db/019).
-  CARR_HIST_POST1492_COLONIAL_NA: 'Colonial_history_of_the_United_States',
+  CARR_HIST_POST1492_COLONIAL_NA: 'Pilgrims_(Plymouth_Colony)',  // people, not the colonial-history article (which is text-heavy)
   CARR_HIST_POST1492_REPUBLIC_US_WHITE: 'European_Americans',
-  CARR_HIST_POST1492_GILDED_AGE_US: 'Gilded_Age',
+  CARR_HIST_POST1492_GILDED_AGE_US: 'Immigration_to_the_United_States',
   CARR_HIST_POST1492_AFRICAN_AMERICAN: 'African_Americans',
   CARR_HIST_POST1492_AFRO_CARIBBEAN: 'Afro-Caribbean_people',
-  CARR_HIST_POST1492_COLONIAL_BR: 'Colonial_Brazil',
+  CARR_HIST_POST1492_COLONIAL_BR: 'Bandeirantes',  // people-image article instead of Colonial_Brazil (map)
   CARR_HIST_POST1492_MODERN_BRAZILIAN: 'Brazilians',
-  CARR_HIST_POST1492_COLONIAL_ANDEAN: 'Spanish_colonization_of_the_Americas',
-  CARR_HIST_POST1492_COLONIAL_AUS: 'History_of_Australia_(1788%E2%80%931850)',
-  CARR_HIST_POST1492_MODERN_AUS: 'Demographics_of_Australia',
+  CARR_HIST_POST1492_COLONIAL_ANDEAN: 'Mestizo',
+  CARR_HIST_POST1492_COLONIAL_AUS: 'Australians',  // colonial-history article is text-heavy
+  CARR_HIST_POST1492_MODERN_AUS: 'Australians',
   CARR_HIST_POST1492_PAKEHA_NZ: 'P%C4%81keh%C4%81',
   CARR_HIST_POST1492_AFRIKANER: 'Afrikaners',
-  CARR_HIST_POST1492_MODERN_ISRAELI: 'Demographics_of_Israel',
-  CARR_HIST_POST1492_MODERN_USA: 'Demographics_of_the_United_States',
-  CARR_HIST_POST1492_MODERN_CANADA: 'Demographics_of_Canada',
-  CARR_HIST_POST1492_MODERN_MEXICO: 'Demographics_of_Mexico',
+  CARR_HIST_POST1492_MODERN_ISRAELI: 'Israelis',
+  CARR_HIST_POST1492_MODERN_USA: 'Americans',
+  CARR_HIST_POST1492_MODERN_CANADA: 'Canadians',
+  CARR_HIST_POST1492_MODERN_MEXICO: 'Mexicans',
 }
 
 export interface WikipediaSummary {

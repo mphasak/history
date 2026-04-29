@@ -179,6 +179,21 @@ export interface HistoricalPlacesResponse {
   places: HistoricalPlace[]
 }
 
+export interface CarrierSearchResult {
+  id: string
+  display_name: string
+  type: string
+  date_min_year: number
+  date_max_year: number
+  centroid: GeoPoint | null
+  dominant_trait: string | null
+}
+
+export interface CarrierSearchResponse {
+  q: string
+  results: CarrierSearchResult[]
+}
+
 export interface CarrierLineageNode {
   id: string
   display_name: string
@@ -263,6 +278,9 @@ export const api = {
 
   carrierTimeline: (carrierId: string, perspective: string): Promise<CarrierTimelineResponse> =>
     get(`/carrier/${carrierId}/timeline`, { perspective }),
+
+  carriersSearch: (q: string, limit = 20): Promise<CarrierSearchResponse> =>
+    get('/carriers/search', { q, limit }),
 
   carrierClaims: (carrierId: string, perspectives: string[]): Promise<CarrierClaimsResponse> =>
     get(`/carrier/${carrierId}/claims`, {

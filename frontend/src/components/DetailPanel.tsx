@@ -240,29 +240,45 @@ export function DetailPanel() {
           back. Many carriers (gene-component populations, gap-fillers
           without dedicated articles) have no Wikipedia entry, in which
           case this section is silently omitted. */}
-      {wiki?.thumbnail && (
-        <a
-          href={wiki.contentUrl ?? '#'}
-          target="_blank"
-          rel="noreferrer"
-          className="block group border-b border-gray-700"
-          title={`From Wikipedia: ${wiki.title}`}
-        >
-          <img
-            src={wiki.thumbnail.source}
-            alt={wiki.title}
-            className="w-full h-40 object-cover group-hover:opacity-90 transition-opacity"
-            loading="lazy"
-          />
-          <div className="px-4 py-2 text-[10px] text-gray-500 leading-snug">
-            <span className="text-gray-400">via Wikipedia</span>
+      {/* Wikipedia thumbnail + extract + Read-more link. The whole image
+          is a link to the article, plus an explicit "Read on Wikipedia"
+          link below so users who skip the image still see it. */}
+      {wiki && (
+        <div className="border-b border-gray-700">
+          {wiki.thumbnail && (
+            <a
+              href={wiki.contentUrl ?? '#'}
+              target="_blank"
+              rel="noreferrer"
+              className="block group"
+              title={`From Wikipedia: ${wiki.title}`}
+            >
+              <img
+                src={wiki.thumbnail.source}
+                alt={wiki.title}
+                className="w-full h-40 object-cover group-hover:opacity-90 transition-opacity"
+                loading="lazy"
+              />
+            </a>
+          )}
+          <div className="px-4 py-2 text-[10px] leading-snug">
             {wiki.extract && (
-              <p className="mt-1 text-[11px] text-gray-300 line-clamp-3">
+              <p className="text-[11px] text-gray-300 line-clamp-3 mb-1.5">
                 {wiki.extract}
               </p>
             )}
+            {wiki.contentUrl && (
+              <a
+                href={wiki.contentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline decoration-dotted"
+              >
+                Read on Wikipedia → {wiki.title}
+              </a>
+            )}
           </div>
-        </a>
+        </div>
       )}
 
       <div className="p-4 space-y-5">

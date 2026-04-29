@@ -27,6 +27,60 @@ from ..resolver import (
 router = APIRouter()
 
 
+@router.get("/carriers/search")
+async def search_carriers(
+    q: str = Query(..., min_length=1, description="Substring or word match against display_name."),
+    limit: int = Query(20, ge=1, le=100),
+    conn: AsyncConnection = Depends(get_conn),
+):
+    """
+    Lightweight search across all carriers. The frontend search box uses
+    this to let a user jump from "type 'Mali'" → click a result → carrier
+    selected + year snapped to its mid-range. Returns a small projection
+    (id, display_name, date range, centroid, dominant trait) — enough for
+    the dropdown without dragging in trait_mix or claims.
+
+    Match strategy:
+      * Lowercase ILIKE substring match on display_name (most common case).
+      * Tie-broken by date_min_year so results read in temporal order.
+    """
+    rows = await conn.execute(
+        """
+        SELECT c.id, c.display_name, c.type, c.date_min_year, c.date_max_year,
+               ST_Y(c.centroid::geometry) AS lat,
+               ST_X(c.centroid::geometry) AS lon,
+               (SELECT trait_id FROM carrier_trait_mix
+                WHERE carrier_id = c.id
+                ORDER BY fraction DESC, trait_id ASC
+                LIMIT 1) AS dominant_trait
+        FROM carrier c
+        WHERE c.display_name ILIKE %(pattern)s
+           OR c.id ILIKE %(pattern)s
+           OR c.archaeological_culture ILIKE %(pattern)s
+           OR c.linguistic_affiliation ILIKE %(pattern)s
+        ORDER BY c.date_min_year, c.id
+        LIMIT %(lim)s
+        """,
+        {"pattern": f"%{q}%", "lim": limit},
+    )
+    out = []
+    async for r in rows:
+        r = dict(r)
+        out.append({
+            "id": r["id"],
+            "display_name": r["display_name"],
+            "type": r["type"],
+            "date_min_year": r["date_min_year"],
+            "date_max_year": r["date_max_year"],
+            "centroid": (
+                {"lat": float(r["lat"]), "lon": float(r["lon"])}
+                if r["lat"] is not None else None
+            ),
+            "dominant_trait": r.get("dominant_trait"),
+        })
+    return {"q": q, "results": out}
+
+
 @router.get("/carrier/{carrier_id}/timeline", response_model=CarrierTimelineResponse)
 async def get_carrier_timeline(
     carrier_id: str,
