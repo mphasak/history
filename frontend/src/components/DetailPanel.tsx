@@ -192,15 +192,44 @@ export function DetailPanel() {
     return y < 0 ? `${Math.abs(y).toLocaleString()} BCE` : `${y} CE`
   }
 
+  /** Compact form for the header date range. Switches to "kya" past 10000
+   * BCE so the deep-paleolithic carriers (Jebel Irhoud, Homo erectus,
+   * Neanderthal) read cleanly instead of showing "300,000 BCE". */
+  function formatYearCompact(y: number): string {
+    if (y < -10000) return `${(Math.abs(y) / 1000).toFixed(0)} kya`
+    if (y < 0) return `${Math.abs(y).toLocaleString()} BCE`
+    return `${y} CE`
+  }
+
+  // Carrier date range for the header subtitle. Pull from the first active
+  // perspective's view (carriers are uniform across perspectives — only the
+  // endorsement and stance differ).
+  const headerCarrier =
+    carriersByPersp[activePerspectives[0]] ??
+    Object.values(carriersByPersp).find((c) => c) ??
+    null
+
   return (
     <div className="bg-gray-900 text-white rounded-lg shadow-xl w-80 max-h-screen overflow-y-auto">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-        <h2 className="font-semibold text-sm truncate">
-          {carriersByPersp[activePerspectives[0]]?.display_name ?? selectedCarrierId}
-        </h2>
+      <div className="flex items-start justify-between px-4 py-3 border-b border-gray-700 gap-2">
+        <div className="min-w-0 flex-1">
+          <h2 className="font-semibold text-sm truncate">
+            {headerCarrier?.display_name ?? selectedCarrierId}
+          </h2>
+          {headerCarrier && (
+            <p
+              className="text-[11px] text-gray-400 mt-0.5"
+              title="Active period — the date range during which this carrier is treated as existing on the map."
+            >
+              {formatYearCompact(headerCarrier.date_min_year)}
+              {' – '}
+              {formatYearCompact(headerCarrier.date_max_year)}
+            </p>
+          )}
+        </div>
         <button
           onClick={() => setSelectedCarrierId(null)}
-          className="text-gray-400 hover:text-white ml-2 shrink-0"
+          className="text-gray-400 hover:text-white shrink-0"
           aria-label="Close"
         >
           ×

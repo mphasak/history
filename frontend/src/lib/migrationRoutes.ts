@@ -38,18 +38,45 @@ const inBox = (
   p[0] >= west && p[0] <= east && p[1] >= south && p[1] <= north
 
 const ROUTES: Route[] = [
-  // ── Bering Land Bridge: northern Asia ↔ Americas. The classic First-
-  // Americans route. We thread through (170 E, 65 N) and (-165 E, 65 N) so
-  // the line hugs the strait instead of cutting across the Pacific.
+  // ── Bering Land Bridge: ANY Old-World ↔ N-Americas edge.
+  //
+  // Earlier this rule only matched when the non-Americas endpoint was
+  // specifically in (60–180 E, 35–80 N). That left edges from e.g. the
+  // First Americans (lat 50, lon -115) to a deeper-time Levantine /
+  // European ancestor cutting straight across the Atlantic, which is
+  // historically nonsense — every Americas-bound migration came through
+  // Beringia. We now match any edge with one endpoint in N America (lon
+  // < -50, lat > -10 to skip South-America-only edges) and the other
+  // east of -30, and thread through a NE-Asia waypoint (≈ Lake Baikal)
+  // before the strait so the Old-World-side approach reads as land-route
+  // across Eurasia rather than a straight line through Greenland.
+  //
+  // South-America-only edges (both endpoints lat < -10) stay straight —
+  // their relevant migrations are intra-Americas Holocene moves, not a
+  // Bering trip.
   {
-    name: 'Asia → Americas via Bering',
-    match: (f, t) => inBox(f, 60, 35, 180, 80) && t[0] < -50,
-    waypoints: [[170, 62], [-170, 66], [-155, 64], [-140, 60]],
+    name: 'Old World → N Americas via Bering',
+    match: (f, t) => f[0] > -30 && t[0] < -50 && t[1] > -10,
+    waypoints: [[105, 55], [170, 62], [-170, 66], [-155, 64], [-140, 60]],
   },
   {
-    name: 'Americas → Asia via Bering',
-    match: (f, t) => f[0] < -50 && inBox(t, 60, 35, 180, 80),
-    waypoints: [[-140, 60], [-155, 64], [-170, 66], [170, 62]],
+    name: 'N Americas → Old World via Bering',
+    match: (f, t) => f[0] < -50 && f[1] > -10 && t[0] > -30,
+    waypoints: [[-140, 60], [-155, 64], [-170, 66], [170, 62], [105, 55]],
+  },
+
+  // S-America ↔ Old World. Same Bering trip but with two extra
+  // waypoints down through Central America so the line doesn't cut
+  // straight across the Pacific from e.g. Mal'ta-Buret' to Mapuche.
+  {
+    name: 'Old World → S Americas via Bering + Mesoamerica',
+    match: (f, t) => f[0] > -30 && t[0] < -50 && t[1] <= -10,
+    waypoints: [[105, 55], [170, 62], [-170, 66], [-155, 64], [-110, 35], [-90, 15], [-80, 0]],
+  },
+  {
+    name: 'S Americas → Old World via Mesoamerica + Bering',
+    match: (f, t) => f[0] < -50 && f[1] <= -10 && t[0] > -30,
+    waypoints: [[-80, 0], [-90, 15], [-110, 35], [-155, 64], [-170, 66], [170, 62], [105, 55]],
   },
 
   // ── Sundaland → Sahul (Australia / Papua New Guinea). The crossing
