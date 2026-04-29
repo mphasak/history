@@ -1,7 +1,15 @@
 import { create } from 'zustand'
 
 export type RenderMode = 'single' | 'side-by-side' | 'diff-overlay'
-export type VizMode = 'pointwise' | 'fill'
+/**
+ * Map visualization mode.
+ * - `pointwise`: each archaeological sample (trait_observation) is its own dot.
+ * - `fill`: carrier extent polygons; dashed for buffered fallbacks, solid for
+ *   authored extents (and territory snapshots).
+ * - `flow`: migration / propagation arrows (source → destination), colored
+ *   by the cultural domain of the event (genetic, technological, …).
+ */
+export type VizMode = 'pointwise' | 'fill' | 'flow'
 /** Map label mode:
  *  - `modern`     : modern political map with present-day place names + borders (default).
  *  - `historical` : clean base + historical place names that match the current year

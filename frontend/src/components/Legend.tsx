@@ -87,6 +87,11 @@ export function Legend({
   if (worldData) {
     if (vizMode === 'pointwise') {
       for (const o of worldData.observations ?? []) presentDomains.add(o.domain)
+    } else if (vizMode === 'flow') {
+      // Flow mode colors propagation arrows by their event-level domain.
+      for (const v of Object.values(worldData.perspectives)) {
+        for (const p of v.propagation_events) presentDomains.add(p.domain)
+      }
     } else {
       for (const v of Object.values(worldData.perspectives)) {
         for (const c of v.carriers) {
@@ -100,19 +105,27 @@ export function Legend({
   return (
     <div className="bg-gray-900/95 text-white text-xs rounded-lg shadow-xl border border-gray-700 px-3 py-2 w-56">
       <div className="font-semibold text-gray-200 mb-2">
-        Legend — {vizMode === 'pointwise' ? 'pointwise' : 'fill'} mode
+        Legend — {vizMode} mode
       </div>
 
-      {vizMode === 'pointwise' ? (
+      {vizMode === 'pointwise' && (
         <div className="text-gray-400 mb-2 leading-snug">
           Dots are <span className="text-gray-200">archaeological samples</span>;
           large blue circles are carrier centroids.
         </div>
-      ) : (
+      )}
+      {vizMode === 'fill' && (
         <div className="text-gray-400 mb-2 leading-snug">
           Filled regions are{' '}
           <span className="text-gray-200">carrier extents</span>. Dashed
           outlines mark approximate (buffered) extents.
+        </div>
+      )}
+      {vizMode === 'flow' && (
+        <div className="text-gray-400 mb-2 leading-snug">
+          Arrows are{' '}
+          <span className="text-gray-200">migrations / propagation events</span>{' '}
+          (source → destination), colored by domain.
         </div>
       )}
 

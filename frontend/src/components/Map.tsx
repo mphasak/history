@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
-import { WorldResponse, CarrierView, TraitObservationView, PaleoFeature, CarrierLineageResponse } from '../api'
+import { WorldResponse, CarrierView, TraitObservationView, PaleoFeature, CarrierLineageResponse, PropagationEventView } from '../api'
 import { useStore } from '../state'
 import { computeDiff } from './DiffOverlay'
 import { clusterColor } from '../lib/clusters'
@@ -68,6 +68,9 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 interface MapInstanceProps {
   containerId: string
   carriers: CarrierView[]
+  /** Propagation events (migration / spread / influence flows) for the
+   * current perspective. Rendered only in flow viz mode. */
+  propagationEvents?: PropagationEventView[]
   observations?: TraitObservationView[]
   paleoFeatures?: PaleoFeature[]
   shelfGeojson?: GeoJSON.FeatureCollection | null
@@ -92,6 +95,7 @@ interface MapInstanceProps {
 function useMapInstance({
   containerId,
   carriers,
+  propagationEvents,
   observations,
   paleoFeatures,
   shelfGeojson,
@@ -398,6 +402,68 @@ function useMapInstance({
         map.getCanvas().style.cursor = ''
       })
 
+      // Propagation / migration flows — rendered only in `flow` viz mode.
+      // Lines run source → destination, colored by domain (genetic =
+      // emerald, linguistic = violet, …) using the same DOMAIN_COLORS the
+      // observations layer uses.
+      map.addSource('propagation-edges', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'propagation-edges-line',
+        type: 'line',
+        source: 'propagation-edges',
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 2.5,
+          'line-opacity': 0.85,
+        },
+      })
+
+      // A second source provides destination points only, so we can render
+      // a small disk + a unicode arrow oriented along the line. MapLibre
+      // doesn't draw arrowheads on lines natively; this is the canonical
+      // workaround.
+      map.addSource('propagation-arrowheads', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      map.addLayer({
+        id: 'propagation-arrowhead-circle',
+        type: 'circle',
+        source: 'propagation-arrowheads',
+        layout: { visibility: 'none' },
+        paint: {
+          'circle-radius': 5,
+          'circle-color': ['get', 'color'],
+          'circle-stroke-color': '#0f172a',
+          'circle-stroke-width': 1,
+        },
+      })
+      map.addLayer({
+        id: 'propagation-arrowhead-arrow',
+        type: 'symbol',
+        source: 'propagation-arrowheads',
+        layout: {
+          visibility: 'none',
+          'text-field': '▶',
+          'text-font': ['Noto Sans Regular'],
+          'text-size': 14,
+          'text-rotate': ['get', 'bearing'],
+          'text-rotation-alignment': 'map',
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+          'text-offset': [0.6, 0],
+        },
+        paint: {
+          'text-color': ['get', 'color'],
+          'text-halo-color': '#0f172a',
+          'text-halo-width': 1.5,
+        },
+      })
+
       // Lineage connector lines + endpoint nodes for the selected carrier.
       // Past edges render amber (looking back), future edges cyan (looking
       // forward). Drawn ABOVE the carrier circles so the connectors don't
@@ -529,6 +595,7 @@ function useMapInstance({
       const v = vizModeRef.current
       const fillVis = v === 'fill' ? 'visible' : 'none'
       const pointVis = v === 'pointwise' ? 'visible' : 'none'
+      const flowVis = v === 'flow' ? 'visible' : 'none'
       for (const id of [
         'carrier-extents-fill',
         'carrier-extents-outline-solid',
@@ -538,6 +605,13 @@ function useMapInstance({
       }
       if (map.getLayer('observations-circle')) {
         map.setLayoutProperty('observations-circle', 'visibility', pointVis)
+      }
+      for (const id of [
+        'propagation-edges-line',
+        'propagation-arrowhead-circle',
+        'propagation-arrowhead-arrow',
+      ]) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', flowVis)
       }
     })
 
@@ -686,6 +760,55 @@ function useMapInstance({
     if (map.getSource('carrier-extents')) apply()
     else map.once('load', apply)
   }, [carriers, diffCarrierIds, colorFor])
+
+  // Update propagation flow lines + arrowheads (flow viz mode).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const lineSrc = map.getSource('propagation-edges') as maplibregl.GeoJSONSource | undefined
+      const arrowSrc = map.getSource('propagation-arrowheads') as maplibregl.GeoJSONSource | undefined
+      if (!lineSrc || !arrowSrc) return
+
+      const lines: GeoJSON.Feature[] = []
+      const arrows: GeoJSON.Feature[] = []
+      for (const p of propagationEvents ?? []) {
+        if (!p.source_point || !p.destination_point) continue
+        const src: [number, number] = [p.source_point.lon, p.source_point.lat]
+        const dst: [number, number] = [p.destination_point.lon, p.destination_point.lat]
+        const color = DOMAIN_COLORS[p.domain] ?? DOMAIN_COLORS.other
+        lines.push({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [src, dst] },
+          properties: {
+            id: p.id,
+            display_name: p.display_name,
+            domain: p.domain,
+            color,
+          },
+        })
+        // Bearing in degrees from source to destination, used to rotate the
+        // unicode arrow at the destination so it points along the line.
+        const dLon = dst[0] - src[0]
+        const dLat = dst[1] - src[1]
+        const bearing = (Math.atan2(dLon, dLat) * 180) / Math.PI
+        arrows.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: dst },
+          properties: {
+            id: p.id,
+            domain: p.domain,
+            color,
+            bearing,
+          },
+        })
+      }
+      lineSrc.setData({ type: 'FeatureCollection', features: lines })
+      arrowSrc.setData({ type: 'FeatureCollection', features: arrows })
+    }
+    if (map.getSource('propagation-edges')) apply()
+    else map.once('load', apply)
+  }, [propagationEvents])
 
   // Update observations source (pointwise mode)
   useEffect(() => {
@@ -936,13 +1059,17 @@ function useMapInstance({
     else map.once('load', apply)
   }, [labelMode])
 
-  // Toggle layer visibility based on viz mode
+  // Toggle layer visibility based on viz mode. Each mode has its own
+  // dominant set of layers; the others hide so the map stays uncluttered.
+  // Flow mode hides extents and observations and shows propagation arrows;
+  // it's the only mode that surfaces propagation_event geometry on the map.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
     const apply = () => {
       const fillVis = vizMode === 'fill' ? 'visible' : 'none'
       const pointVis = vizMode === 'pointwise' ? 'visible' : 'none'
+      const flowVis = vizMode === 'flow' ? 'visible' : 'none'
       for (const id of [
         'carrier-extents-fill',
         'carrier-extents-outline-solid',
@@ -952,6 +1079,13 @@ function useMapInstance({
       }
       if (map.getLayer('observations-circle')) {
         map.setLayoutProperty('observations-circle', 'visibility', pointVis)
+      }
+      for (const id of [
+        'propagation-edges-line',
+        'propagation-arrowhead-circle',
+        'propagation-arrowhead-arrow',
+      ]) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', flowVis)
       }
     }
     if (map.getLayer('carrier-extents-fill')) apply()
@@ -964,6 +1098,7 @@ function useMapInstance({
 // Single-perspective map
 function SingleMap({
   carriers,
+  propagationEvents,
   observations,
   paleoFeatures,
   shelfGeojson,
@@ -976,6 +1111,7 @@ function SingleMap({
   onMapClick,
 }: {
   carriers: CarrierView[]
+  propagationEvents: PropagationEventView[]
   observations: TraitObservationView[]
   paleoFeatures: PaleoFeature[]
   shelfGeojson: GeoJSON.FeatureCollection | null
@@ -991,6 +1127,7 @@ function SingleMap({
   useMapInstance({
     containerId,
     carriers,
+    propagationEvents,
     observations,
     paleoFeatures,
     shelfGeojson,
@@ -1086,11 +1223,14 @@ export function WorldMap({
     const diffIds = new Set(diffs.filter((d) => d.hasDisagreement).map((d) => d.carrierId))
     const allCarriers = Object.values(worldData.perspectives).flatMap((v) => v.carriers)
     const uniqueCarriers = Array.from(new globalThis.Map(allCarriers.map((c) => [c.id, c])).values())
+    const allProps = Object.values(worldData.perspectives).flatMap((v) => v.propagation_events)
+    const uniqueProps = Array.from(new globalThis.Map(allProps.map((p) => [p.id, p])).values())
     return (
       <div className="w-full h-full relative">
         <div id="map-diff" className="w-full h-full" />
         <DiffMapUpdater
           carriers={uniqueCarriers}
+          propagationEvents={uniqueProps}
           observations={worldData.observations ?? []}
           paleoFeatures={paleoFeatures}
           shelfGeojson={shelfGeojson}
@@ -1109,11 +1249,13 @@ export function WorldMap({
   // Single perspective mode (use first active perspective)
   const pid = perspIds[0]
   const carriers = worldData.perspectives[pid]?.carriers ?? []
+  const propagationEvents = worldData.perspectives[pid]?.propagation_events ?? []
   const observations = worldData.observations ?? []
   return (
     <div className="w-full h-full">
       <SingleMap
         carriers={carriers}
+        propagationEvents={propagationEvents}
         observations={observations}
         paleoFeatures={paleoFeatures}
         shelfGeojson={shelfGeojson}
@@ -1163,6 +1305,7 @@ function SideBySideMap({
   const map1Ref = useMapInstance({
     containerId: `map-left`,
     carriers: worldData.perspectives[leftPid]?.carriers ?? [],
+    propagationEvents: worldData.perspectives[leftPid]?.propagation_events ?? [],
     observations,
     paleoFeatures,
     shelfGeojson,
@@ -1180,6 +1323,7 @@ function SideBySideMap({
   const map2Ref = useMapInstance({
     containerId: `map-right`,
     carriers: worldData.perspectives[rightPid]?.carriers ?? [],
+    propagationEvents: worldData.perspectives[rightPid]?.propagation_events ?? [],
     observations,
     paleoFeatures,
     shelfGeojson,
@@ -1220,6 +1364,7 @@ function SideBySideMap({
 // Separate component to update diff-overlay map (uses a standalone map instance)
 function DiffMapUpdater({
   carriers,
+  propagationEvents,
   observations,
   paleoFeatures,
   shelfGeojson,
@@ -1232,6 +1377,7 @@ function DiffMapUpdater({
   onMapClick,
 }: {
   carriers: CarrierView[]
+  propagationEvents: PropagationEventView[]
   observations: TraitObservationView[]
   paleoFeatures: PaleoFeature[]
   shelfGeojson: GeoJSON.FeatureCollection | null
@@ -1246,6 +1392,7 @@ function DiffMapUpdater({
   useMapInstance({
     containerId: 'map-diff',
     carriers,
+    propagationEvents,
     observations,
     paleoFeatures,
     shelfGeojson,

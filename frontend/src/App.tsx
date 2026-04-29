@@ -99,7 +99,7 @@ export default function App() {
         <div className="flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-wide text-gray-500">Viz</span>
           <div className="flex gap-1">
-            {(['pointwise', 'fill'] as VizMode[]).map((mode) => (
+            {(['pointwise', 'fill', 'flow'] as VizMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setVizMode(mode)}
@@ -108,8 +108,15 @@ export default function App() {
                     ? 'bg-emerald-600 text-white'
                     : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                 }`}
+                title={
+                  mode === 'pointwise'
+                    ? 'Each archaeological sample (trait_observation) as a colored dot'
+                    : mode === 'fill'
+                      ? 'Carrier extent polygons — solid for authored extents, dashed for buffered fallbacks'
+                      : 'Migration / propagation arrows: source → destination, colored by domain'
+                }
               >
-                {mode === 'pointwise' ? 'Pointwise' : 'Fill'}
+                {mode === 'pointwise' ? 'Pointwise' : mode === 'fill' ? 'Fill' : 'Flow'}
               </button>
             ))}
           </div>

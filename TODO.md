@@ -5,7 +5,7 @@
 - ✓ Allow visualizing the path into the past / future for a given population (`GET /carrier/{id}/lineage` + Lineage Off/Past/Future/Both header toggle; amber edges look back, cyan edges look forward; shared trait_ids label each edge).
 - ✓ Animation mode (Play/Pause button next to the Lineage toggle): the year slider auto-advances over the lineage span; ancestors fade in then ghost out, the focal carrier lights up, then descendants light up in sequence.
 - ✓ Color-code multiple populations by their dominant ancestry trait ("population cluster") — Color: Cluster/Mono header toggle; legend lists the clusters present in view (Steppe_MLBA, ANI, ANATOLIAN_FARMER, etc.). Disagreement-red still wins in diff overlay.
-- think of some more interesting ways to visualize this data and add them as options.  dots on map is not compelling.  regions are compelling.  
+- ✓ Compelling viz options: added `Flow` mode that draws migration / propagation arrows (source → destination) colored by domain; `Cluster` color mode for carriers (see prior item) makes the `Fill` mode region-readable. (Future ideas: density heatmap, voronoi tessellation.)
 - the data still seems sparse.  iterate through all time points and notable geographies, and make sure we have data there for them if there is any out there.  or if you don't find hard citations but you know e.g. "fertile crescent population" started here, add it yourself with self-citation
 - for each population, find a representative picture from wikipedia, and display it in the inspector panel when viewing it
 - sweep all the populations missing trait mixes.  for the ones that are empty or sparse, try harder to find a plausible background, even if its not a hard scientific citation.  just cite or self-cite appropriately
