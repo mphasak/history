@@ -8,6 +8,7 @@ import {
   CarrierThreat,
 } from '../api'
 import { useWorldQuery, usePerspectives } from '../hooks/useWorldQuery'
+import { fetchCarrierImage, WikipediaSummary } from '../lib/wikipedia'
 
 const THREAT_TYPE_LABEL: Record<string, string> = {
   climate: 'Climate',
@@ -114,6 +115,11 @@ export function DetailPanel() {
   const [loadingClaims, setLoadingClaims] = useState(false)
   const [threats, setThreats] = useState<CarrierThreat[]>([])
   const [loadingThreats, setLoadingThreats] = useState(false)
+  // Wikipedia thumbnail + brief extract for the selected carrier — fetched
+  // directly from Wikipedia's REST API (CORS-allowed), cached client-side
+  // by title. Many carriers have no Wikipedia page; in that case we silently
+  // skip rendering the image.
+  const [wiki, setWiki] = useState<WikipediaSummary | null>(null)
 
   useEffect(() => {
     if (!selectedCarrierId || activePerspectives.length === 0) return
@@ -150,6 +156,24 @@ export function DetailPanel() {
       .catch(() => { setThreats([]); setLoadingThreats(false) })
   }, [selectedCarrierId, year])
 
+  // Wikipedia image lookup. Resets per carrier so we don't briefly show the
+  // previous carrier's photo while the new fetch is in-flight.
+  useEffect(() => {
+    if (!selectedCarrierId) { setWiki(null); return }
+    setWiki(null)
+    let cancelled = false
+    const carrier = worldData
+      ? Object.values(worldData.perspectives)
+          .flatMap((v) => v.carriers)
+          .find((c) => c.id === selectedCarrierId)
+      : null
+    const displayName = carrier?.display_name ?? selectedCarrierId
+    fetchCarrierImage(selectedCarrierId, displayName).then((res) => {
+      if (!cancelled) setWiki(res)
+    })
+    return () => { cancelled = true }
+  }, [selectedCarrierId])
+
   if (!selectedCarrierId) return null
 
   // Get carrier views from world data for each perspective
@@ -182,6 +206,35 @@ export function DetailPanel() {
           ×
         </button>
       </div>
+
+      {/* Wikipedia thumbnail + extract — only renders when a thumbnail came
+          back. Many carriers (gene-component populations, gap-fillers
+          without dedicated articles) have no Wikipedia entry, in which
+          case this section is silently omitted. */}
+      {wiki?.thumbnail && (
+        <a
+          href={wiki.contentUrl ?? '#'}
+          target="_blank"
+          rel="noreferrer"
+          className="block group border-b border-gray-700"
+          title={`From Wikipedia: ${wiki.title}`}
+        >
+          <img
+            src={wiki.thumbnail.source}
+            alt={wiki.title}
+            className="w-full h-40 object-cover group-hover:opacity-90 transition-opacity"
+            loading="lazy"
+          />
+          <div className="px-4 py-2 text-[10px] text-gray-500 leading-snug">
+            <span className="text-gray-400">via Wikipedia</span>
+            {wiki.extract && (
+              <p className="mt-1 text-[11px] text-gray-300 line-clamp-3">
+                {wiki.extract}
+              </p>
+            )}
+          </div>
+        </a>
+      )}
 
       <div className="p-4 space-y-5">
         {activePerspectives.map((pid) => {
