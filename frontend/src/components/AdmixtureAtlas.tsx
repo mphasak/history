@@ -42,10 +42,13 @@ interface CarrierMeta {
   dominant_trait: string | null
 }
 
-const ROW_H = 28
-// Per-carrier bar height now comes from `lib/populationEstimates.ts`
-// (log-scaled by peak population) — min 3 px for tiny island bands,
-// max 22 px for continent-scale modern populations.
+// Each carrier's row is sized to fit its bar (min 7 px → max 56 px,
+// log-scaled by peak population — see lib/populationEstimates.ts) plus
+// `ROW_PAD` of vertical breathing room top + bottom. Dynamic row height
+// keeps tiny founder bands tight while giving the modern continental
+// blocs the vertical real estate they deserve.
+const ROW_PAD = 6
+const SECTION_HEADER_H = 24
 const LABEL_W = 240   // left gutter for carrier display_name
 const TIME_W_MIN = 1200 // minimum width of the time region
 const PADDING_TOP = 16
@@ -142,8 +145,11 @@ export function AdmixtureAtlas() {
     return () => { cancelled = true }
   }, [open])
 
-  // Sort carriers into rows. Group by region, then by date_min_year.
-  // Returns: ordered list with row index + region-section start markers.
+  // Sort carriers into rows, grouped by region and date. Then compute
+  // a per-row Y offset. Each row's height is `barH + 2*ROW_PAD` —
+  // dynamic, so a tiny Habilis-scale row is ~13 px tall and a Modern-
+  // Han-scale row is ~68 px tall. Section headers (region labels) get
+  // their own SECTION_HEADER_H slot above the first row of the group.
   const layout = useMemo(() => {
     const list = Object.values(carriers)
     const grouped: Record<Region, CarrierMeta[]> = {
@@ -158,23 +164,35 @@ export function AdmixtureAtlas() {
         a.display_name.localeCompare(b.display_name),
       )
     }
-    const rows: { carrier: CarrierMeta; rowIndex: number; region: Region }[] = []
-    const sectionStarts: { region: Region; rowIndex: number }[] = []
-    let i = 0
+
+    type Row = {
+      carrier: CarrierMeta
+      region: Region
+      yTop: number  // y of the row's top edge
+      barH: number  // pixel height of the bar in this row
+      rowH: number  // total row height incl. vertical padding
+    }
+    const rows: Row[] = []
+    const sectionStarts: { region: Region; yTop: number }[] = []
+    let cursor = PADDING_TOP
+
     for (const region of REGION_ORDER) {
       const items = grouped[region]
       if (items.length === 0) continue
-      sectionStarts.push({ region, rowIndex: i })
-      // Region label takes one row of vertical space.
-      i += 1
+      sectionStarts.push({ region, yTop: cursor })
+      cursor += SECTION_HEADER_H
       for (const c of items) {
-        rows.push({ carrier: c, rowIndex: i, region })
-        i += 1
+        const barH = barHeightForCarrier(c.id)
+        const rowH = barH + 2 * ROW_PAD
+        rows.push({ carrier: c, region, yTop: cursor, barH, rowH })
+        cursor += rowH
       }
     }
-    const rowById: Record<string, number> = {}
-    for (const r of rows) rowById[r.carrier.id] = r.rowIndex
-    return { rows, sectionStarts, rowById, totalRows: i }
+
+    // Center-of-bar Y per carrier, used as the bezier-curve anchor.
+    const centerYById: Record<string, number> = {}
+    for (const r of rows) centerYById[r.carrier.id] = r.yTop + r.rowH / 2
+    return { rows, sectionStarts, centerYById, totalHeight: cursor + 32 }
   }, [carriers])
 
   if (!open) return null
@@ -186,7 +204,7 @@ export function AdmixtureAtlas() {
   // selector that drives the slider.
   const innerWidth = Math.max(TIME_W_MIN, window.innerWidth - 64)
   const timeWidth = innerWidth - LABEL_W - 24
-  const totalHeight = PADDING_TOP + layout.totalRows * ROW_H + 32
+  const totalHeight = layout.totalHeight
 
   const xAt = (y: number): number => LABEL_W + yearToFraction(y) * timeWidth
 
@@ -203,7 +221,7 @@ export function AdmixtureAtlas() {
     const color = RUPTURE_COLOR[e.rupture_kind] ?? '#9ca3af'
     for (const p of e.parent_carriers) {
       for (const r of e.result_carriers) {
-        if (!(p in layout.rowById) || !(r in layout.rowById)) continue
+        if (!(p in layout.centerYById) || !(r in layout.centerYById)) continue
         edges.push({
           eventId: e.id,
           parentId: p,
@@ -309,7 +327,7 @@ export function AdmixtureAtlas() {
               <text
                 key={s.region}
                 x={LABEL_W - 8}
-                y={PADDING_TOP + s.rowIndex * ROW_H + 14}
+                y={s.yTop + SECTION_HEADER_H - 4}
                 fill="#94a3b8"
                 fontSize={11}
                 fontWeight="600"
@@ -326,16 +344,10 @@ export function AdmixtureAtlas() {
               const parent = carriers[e.parentId]
               const result = carriers[e.resultId]
               if (!parent || !result) return null
-              const parentBar = barHeightForCarrier(parent.id)
-              const resultBar = barHeightForCarrier(result.id)
               const px = xAt(parent.date_max_year)
-              // Anchor the curve to the *bar's right edge mid-line*, not
-              // a fixed ROW_H/2, so bars of varying thickness still
-              // connect cleanly through the curve.
-              const py = PADDING_TOP + (layout.rowById[e.parentId] ?? 0) * ROW_H + ROW_H / 2
-              void parentBar; void resultBar
+              const py = layout.centerYById[e.parentId]
               const rx = xAt(result.date_min_year)
-              const ry = PADDING_TOP + (layout.rowById[e.resultId] ?? 0) * ROW_H + ROW_H / 2
+              const ry = layout.centerYById[e.resultId]
               const isHover = hoverEdge === `${e.eventId}|${e.parentId}|${e.resultId}`
               return (
                 <g key={`edge-${i}`}>
@@ -363,49 +375,46 @@ export function AdmixtureAtlas() {
                 as a 22 px slab. The visual encodes "how big was this
                 population" — a key part of the drama Reich highlights:
                 small ghost populations fused into huge modern ones. */}
-            {layout.rows.map(({ carrier: c, rowIndex }) => {
+            {layout.rows.map(({ carrier: c, yTop, barH, rowH }) => {
               const x1 = xAt(c.date_min_year)
               const x2 = xAt(c.date_max_year)
-              const barH = barHeightForCarrier(c.id)
-              const y = PADDING_TOP + rowIndex * ROW_H + (ROW_H - barH) / 2
+              // Center the bar within the row.
+              const y = yTop + (rowH - barH) / 2
               const fill = c.dominant_trait
                 ? colorForTraitId(c.dominant_trait)
                 : '#475569'
               const popEstimate = POPULATION_ESTIMATES[c.id]
+              const select = () => {
+                const mid = Math.round((c.date_min_year + c.date_max_year) / 2)
+                setYear(mid)
+                setSelectedCarrierId(c.id)
+                setOpen(false)
+              }
+              // Label font scales modestly with bar height so the modern
+              // population blocs don't have tiny labels next to giant bars.
+              const labelSize = Math.max(10, Math.min(14, 9 + barH / 8))
               return (
                 <g key={c.id}>
-                  {/* Label (left gutter) */}
                   <text
                     x={LABEL_W - 8}
-                    y={PADDING_TOP + rowIndex * ROW_H + ROW_H / 2 + 3}
+                    y={yTop + rowH / 2 + 3}
                     fill="#cbd5e1"
-                    fontSize={10}
+                    fontSize={labelSize}
                     textAnchor="end"
                     style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      const mid = Math.round((c.date_min_year + c.date_max_year) / 2)
-                      setYear(mid)
-                      setSelectedCarrierId(c.id)
-                      setOpen(false)
-                    }}
+                    onClick={select}
                   >
                     <title>{c.id}</title>
                     {c.display_name.length > 40 ? c.display_name.slice(0, 38) + '…' : c.display_name}
                   </text>
-                  {/* Bar */}
                   <rect
                     x={x1} y={y} width={Math.max(2, x2 - x1)} height={barH}
                     fill={fill}
                     stroke="#0f172a"
                     strokeWidth={1}
-                    rx={2}
+                    rx={Math.min(3, barH / 2)}
                     style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      const mid = Math.round((c.date_min_year + c.date_max_year) / 2)
-                      setYear(mid)
-                      setSelectedCarrierId(c.id)
-                      setOpen(false)
-                    }}
+                    onClick={select}
                   >
                     <title>
                       {c.display_name} · {formatYear(c.date_min_year)} — {formatYear(c.date_max_year)}

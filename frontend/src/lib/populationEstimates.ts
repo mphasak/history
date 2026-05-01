@@ -211,20 +211,30 @@ export const POPULATION_ESTIMATES: Record<string, number> = {
   CARR_SF_BAY_AREA_2025:         8_000_000,
 }
 
-// Log-scale bar height. Sets the visual span — we want the difference
-// between 1,000 (founder bottlenecks) and 1,500,000,000 (modern Han)
-// to *show* without making the small bands invisible.
-const MIN_POP = 1_000
+// Log-scale bar height with an aggressive ceiling so the modern
+// populations actually *feel* bigger than the founder bands.
+//
+// Floor: anything ≤ MIN_POP renders at MIN_BAR_H. We anchor MIN_POP
+// at Habilis-scale (~20,000) so all the founder / island bands clip to
+// the same hair-line, keeping Habilis-as-baseline. Below that, the
+// distinction between a 5K island band and a 20K East-African
+// population isn't really estimable anyway.
+//
+// Ceiling: MAX_BAR_H = 56 so Modern Han (1.4 B) renders ~8× the
+// height of Habilis. With ROW_H growing dynamically with the bar,
+// the modern blocs get the visual weight that matches the actual
+// population scale.
+const MIN_POP = 20_000
 const MAX_POP = 2_000_000_000
-const MIN_BAR_H = 3
-const MAX_BAR_H = 22
+export const MIN_BAR_H = 7
+export const MAX_BAR_H = 56
 
 const LOG_RANGE = Math.log10(MAX_POP) - Math.log10(MIN_POP)
 
 /**
- * Bar height in pixels for a carrier, log-scaled by population
- * estimate. Carriers without an entry default to MIN_BAR_H (the visual
- * equivalent of "small / unknown population, render as a thin line").
+ * Bar height in pixels for a carrier, log-scaled by population.
+ * Carriers without an entry, or whose pop ≤ MIN_POP, default to
+ * MIN_BAR_H (the same hair-line as Habilis-scale bands).
  */
 export function barHeightForCarrier(carrierId: string): number {
   const pop = POPULATION_ESTIMATES[carrierId]
