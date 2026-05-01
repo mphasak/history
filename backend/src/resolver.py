@@ -910,6 +910,75 @@ async def _carrier_trait_info(conn, carrier_id: str) -> dict:
     }
 
 
+async def _admixture_neighbors(
+    conn,
+    source_carrier_id: str,
+    side: str,
+    exclude_ids: list[str],
+) -> list[dict]:
+    """
+    Authoritative parent / child lineage edges drawn from the
+    `admixture_event` table — the same edges the AdmixtureAtlas
+    visualizes. Returns carriers (parents for side='past', results for
+    side='future') tagged so the lineage BFS treats them as
+    higher-priority than trait-mix-derived heuristic matches.
+
+    Without this path, populations like Homo luzonensis (whose only
+    `trait_mix` row is `HOMININ_LUZONENSIS=1.0`) appear as ancestor /
+    descendant nodes in the Atlas (because ADMIX_INSULAR_HOMININS
+    explicitly names them) but produce empty results in the
+    map's lineage BFS — the two views disagree.
+
+    Temporal constraint is intentionally skipped: the admixture event
+    encodes the parent→result direction explicitly, and parent /
+    result date ranges sometimes overlap (e.g. Christianity-era
+    Roman Empire 'fades into' Byzantine while Roman is still on
+    paper). We trust the curator.
+    """
+    if side == "past":
+        column_match = "result_carriers"
+        column_return = "parent_carriers"
+    else:
+        column_match = "parent_carriers"
+        column_return = "result_carriers"
+    rows = await conn.execute(
+        f"""
+        SELECT DISTINCT c.id, c.display_name, c.type,
+               c.date_min_year, c.date_max_year,
+               ST_Y(c.centroid::geometry) AS lat,
+               ST_X(c.centroid::geometry) AS lon,
+               -- The admixture event that justifies this edge — used so
+               -- the UI can label the connector with the event name and
+               -- its rupture_kind. Picks the lowest event id so the
+               -- result is deterministic when multiple events apply.
+               (SELECT MIN(id) FROM admixture_event ev2
+                  WHERE %(src_id)s = ANY(ev2.{column_match})
+                    AND c.id = ANY(ev2.{column_return})) AS via_event_id
+        FROM admixture_event ev
+        CROSS JOIN LATERAL unnest(ev.{column_return}) AS r(rid)
+        JOIN carrier c ON c.id = r.rid
+        WHERE %(src_id)s = ANY(ev.{column_match})
+          AND c.id <> %(src_id)s
+          AND NOT (c.id = ANY(%(excluded)s::text[]))
+        """,
+        {"src_id": source_carrier_id, "excluded": exclude_ids or []},
+    )
+    out = []
+    async for r in rows:
+        r = dict(r)
+        out.append({
+            "id": r["id"],
+            "display_name": r["display_name"],
+            "type": r["type"],
+            "date_min_year": r["date_min_year"],
+            "date_max_year": r["date_max_year"],
+            "centroid": _point(r["lat"], r["lon"]),
+            "shared_trait_ids": [],  # admixture-event-derived; not via shared traits
+            "via_admixture_event_id": r.get("via_event_id"),
+        })
+    return out
+
+
 async def _one_hop_lineage(
     conn,
     source_carrier_id: str,
@@ -1067,10 +1136,10 @@ async def _one_hop_lineage(
             },
         )
 
-    out = []
+    trait_based: list[dict] = []
     async for r in rows:
         r = dict(r)
-        out.append({
+        trait_based.append({
             "id": r["id"],
             "display_name": r["display_name"],
             "type": r["type"],
@@ -1079,7 +1148,29 @@ async def _one_hop_lineage(
             "centroid": _point(r["lat"], r["lon"]),
             "shared_trait_ids": list(r.get("shared_trait_ids") or []),
         })
-    return out
+
+    # Authoritative lineage edges from `admixture_event` ALWAYS take
+    # priority — those are curated parent → result relationships, used
+    # by the AdmixtureAtlas. Without this branch, populations referenced
+    # only in admixture events (e.g. Homo luzonensis, whose only
+    # trait_mix is HOMININ_LUZONENSIS=1.0 with no shared traits to
+    # earlier hominins) appear in the Atlas but produce empty lineage
+    # results in the map BFS — the two views silently disagree.
+    admix_based = await _admixture_neighbors(
+        conn, source_carrier_id, side, exclude_ids
+    )
+
+    # Concat with admix first; dedupe by id (admix wins); take up to limit.
+    seen: set[str] = set()
+    combined: list[dict] = []
+    for c in admix_based + trait_based:
+        if c["id"] in seen:
+            continue
+        seen.add(c["id"])
+        combined.append(c)
+        if len(combined) >= max_per_hop:
+            break
+    return combined
 
 
 async def resolve_carrier_lineage(
