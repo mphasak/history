@@ -59,6 +59,115 @@ INSERT INTO admixture_event (id, display_name, year_min, year_max, centroid,
                               parent_carriers, result_carriers,
                               severity, rupture_kind, source_id) VALUES
 
+  -- ==========================================================
+  -- Deep-time speciation / divergence events (pre-OOA).
+  --
+  -- These aren't "admixture" in the strict population-genetics sense —
+  -- they're branching points in the hominin family tree. We model them
+  -- in the same table so the atlas can render the full lineage from
+  -- Homo habilis → modern populations as a connected graph. Without
+  -- these, the atlas appears to begin at the OOA × Neanderthal event
+  -- ~50 kya, which makes Reich's "many ghost populations fused into
+  -- a few" thesis impossible to see at the deepest scale.
+  --
+  -- rupture_kind is `gradual_blend` for slow speciation and
+  -- `island_settlement` for major dispersal events (Erectus OOA,
+  -- insular descendants on Flores / Luzon) since the existing CHECK
+  -- constraint already permits these values.
+  -- ==========================================================
+
+  ('ADMIX_HABILIS_TO_ERECTUS',
+   'Homo habilis → Homo erectus (Africa)',
+   -2200000, -1900000,
+   ST_GeogFromText('SRID=4326;POINT(36 4)'),
+   'In East Africa, the descendants of Homo habilis evolved into Homo erectus / ergaster — the first hominin with a recognizably modern body plan, controlled fire, Acheulean handaxes, and the cognitive scaffolding to leave Africa. The transition was gradual; "where habilis ends and erectus begins" is a calibration choice, not a sharp event.',
+   ARRAY['HOMININ_HABILIS']::text[],
+   ARRAY['HOMININ_ERECTUS']::text[],
+   ARRAY['CARR_HOMININ_HOMO_HABILIS']::text[],
+   ARRAY['CARR_HOMININ_AFRICAN_ERECTUS']::text[],
+   2, 'gradual_blend', 'DEDUCED_PHASE_0'),
+
+  ('ADMIX_ERECTUS_OOA',
+   'Homo erectus dispersal Out of Africa',
+   -1900000, -1400000,
+   ST_GeogFromText('SRID=4326;POINT(45 25)'),
+   'The first hominin to leave Africa. Erectus / ergaster populations dispersed across Eurasia by ~1.8 Mya, reaching Dmanisi (Georgia), Java (Indonesia), and northern China, with later European descendants becoming antecessor and (eventually) heidelbergensis. The dispersal was probably not a single migration but multiple waves following large-mammal corridors.',
+   ARRAY['HOMININ_ERECTUS']::text[],
+   ARRAY['HOMININ_ERECTUS','HOMININ_ANTECESSOR']::text[],
+   ARRAY['CARR_HOMININ_AFRICAN_ERECTUS']::text[],
+   ARRAY['CARR_HOMININ_ASIAN_ERECTUS_JAVA','CARR_HOMININ_ASIAN_ERECTUS_CHINA','CARR_HOMININ_ANTECESSOR']::text[],
+   3, 'island_settlement', 'DEDUCED_PHASE_0'),
+
+  ('ADMIX_HEIDELBERGENSIS_EMERGENCE',
+   'Heidelbergensis emerges from late Erectus / Antecessor',
+   -800000, -600000,
+   ST_GeogFromText('SRID=4326;POINT(20 35)'),
+   'Across Africa and Eurasia, late-erectus and antecessor populations evolved into Homo heidelbergensis (and the African form sometimes split off as rhodesiensis). Larger brains, more sophisticated stone tools (transitional Acheulean / Levalloisian), early evidence of structured shelters and possibly hafted weapons.',
+   ARRAY['HOMININ_ERECTUS','HOMININ_ANTECESSOR']::text[],
+   ARRAY['HOMININ_HEIDELBERGENSIS','HOMININ_RHODESIENSIS']::text[],
+   ARRAY['CARR_HOMININ_AFRICAN_ERECTUS','CARR_HOMININ_ANTECESSOR']::text[],
+   ARRAY['CARR_HOMININ_HEIDELBERGENSIS','CARR_HOMININ_RHODESIENSIS']::text[],
+   2, 'gradual_blend', 'DEDUCED_PHASE_0'),
+
+  ('ADMIX_HEIDELBERGENSIS_SPLITS',
+   'Heidelbergensis splits into Neanderthal + Denisovan + sapiens lineages',
+   -600000, -400000,
+   ST_GeogFromText('SRID=4326;POINT(30 35)'),
+   'The Eurasian heidelbergensis populations diverge into two sister lineages — Neanderthals in the west, Denisovans in the east — while the African heidelbergensis / rhodesiensis lineage continues toward modern Homo sapiens. The three-way split is the "ghost-population trinity" of the modern human story: every living human carries genes from at least two of these three branches.',
+   ARRAY['HOMININ_HEIDELBERGENSIS','HOMININ_RHODESIENSIS']::text[],
+   ARRAY['NEANDERTHAL','DENISOVAN','AFR_BASAL']::text[],
+   ARRAY['CARR_HOMININ_HEIDELBERGENSIS']::text[],
+   ARRAY['CARR_HOMININ_NEANDERTHAL','CARR_HOMININ_DENISOVAN','CARR_HOMININ_RHODESIENSIS']::text[],
+   3, 'gradual_blend', 'DEDUCED_PHASE_0'),
+
+  ('ADMIX_INSULAR_HOMININS',
+   'Insular Asian hominins: Floresiensis + Luzonensis + Naledi',
+   -100000, -50000,
+   ST_GeogFromText('SRID=4326;POINT(120 -8)'),
+   'Multiple "side branches" of erectus persisted on Pleistocene islands long after their continental cousins disappeared. Homo floresiensis (Flores, Indonesia), Homo luzonensis (Luzon, Philippines), and the puzzling Homo naledi of South Africa each persisted into the time when modern humans were already spreading. Their relationships to the rest of the tree are still debated.',
+   ARRAY['HOMININ_ERECTUS','HOMININ_HEIDELBERGENSIS']::text[],
+   ARRAY['HOMININ_FLORESIENSIS','HOMININ_LUZONENSIS','HOMININ_NALEDI']::text[],
+   ARRAY['CARR_HOMININ_ASIAN_ERECTUS_JAVA','CARR_HOMININ_HEIDELBERGENSIS']::text[],
+   ARRAY['CARR_HOMININ_FLORESIENSIS','CARR_HOMININ_LUZONENSIS','CARR_HOMININ_NALEDI']::text[],
+   2, 'island_settlement', 'DEDUCED_PHASE_0'),
+
+  ('ADMIX_SAPIENS_EMERGENCE',
+   'Anatomically modern Homo sapiens emerges in Africa',
+   -315000, -200000,
+   ST_GeogFromText('SRID=4326;POINT(20 15)'),
+   'Across the African continent, late heidelbergensis / rhodesiensis populations evolve into anatomically modern Homo sapiens. The Jebel Irhoud finds (Morocco, ~315 kya) and the Omo / Herto remains (Ethiopia, ~200-160 kya) bookend this transition. Pan-African mosaic, not a single bottleneck — different sapiens-like traits (gracile face, globular braincase, prominent chin) appear in different regions over a hundred-thousand-year interval.',
+   ARRAY['HOMININ_RHODESIENSIS','HOMININ_HEIDELBERGENSIS']::text[],
+   ARRAY['AFR_BASAL']::text[],
+   ARRAY['CARR_HOMININ_RHODESIENSIS','CARR_HOMININ_HEIDELBERGENSIS']::text[],
+   ARRAY['CARR_HIST_JEBEL_IRHOUD','CARR_HIST_OMO_HERTO']::text[],
+   3, 'gradual_blend', 'DEDUCED_PHASE_0'),
+
+  ('ADMIX_AFRICAN_SAPIENS_DIVERSIFY',
+   'African sapiens diversification (Khoe-San split + OOA source)',
+   -200000, -70000,
+   ST_GeogFromText('SRID=4326;POINT(25 0)'),
+   'Within Africa, early sapiens populations diverge into deep regional lineages. The Khoe-San ancestral split is the deepest among living human populations (~200-150 kya). Other lineages persist in central / east / west Africa, and a small NE African subset eventually becomes the source of the Out-of-Africa dispersal that founds non-African humanity.',
+   ARRAY['AFR_BASAL']::text[],
+   ARRAY['AFR_BASAL','AFR_KHOISAN']::text[],
+   ARRAY['CARR_HIST_OMO_HERTO','CARR_HIST_JEBEL_IRHOUD']::text[],
+   ARRAY['CARR_HIST_KHOE_SAN_ANCESTRAL','CARR_HIST_AFR_EARLY_OOA_SOURCE']::text[],
+   2, 'gradual_blend', 'DEDUCED_PHASE_0'),
+
+  ('ADMIX_OOA_DEPARTURE',
+   'Out-of-Africa dispersal',
+   -75000, -55000,
+   ST_GeogFromText('SRID=4326;POINT(40 20)'),
+   'A small NE-African sapiens subset crosses into Eurasia, probably via Sinai or Bab-el-Mandeb, founding the population that becomes every non-African human alive today. The bottleneck is severe (effective founder population on the order of a few thousand), which is why all non-Africans are genetically more similar to each other than any of them are to many sub-Saharan populations.',
+   ARRAY['AFR_BASAL']::text[],
+   ARRAY['BASAL_EURASIAN','AFR_BASAL']::text[],
+   ARRAY['CARR_HIST_AFR_EARLY_OOA_SOURCE']::text[],
+   ARRAY['CARR_OOA_LEVANT_55K']::text[],
+   3, 'island_settlement', 'DEDUCED_PHASE_0'),
+
+  -- ==========================================================
+  -- The original (post-OOA) admixture events.
+  -- ==========================================================
+
   ('ADMIX_OOA_NEANDERTHAL_LEVANT',
    'Out-of-Africa × Neanderthal admixture',
    -55000, -47000,
