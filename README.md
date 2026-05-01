@@ -141,7 +141,7 @@ validates.
 ```
 .
 ├── AGENTS.md / CLAUDE.md      # progressive disclosure for AI agents
-├── db/                        # SQL schema + 24 idempotent seed files
+├── db/                        # SQL schema + 25 idempotent seed files (db/003-027)
 ├── harness/                   # codebase harness (golden flows, invariants, drift)
 ├── ingest/                    # one-shot spreadsheet → Postgres
 ├── backend/                   # FastAPI + psycopg3

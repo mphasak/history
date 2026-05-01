@@ -50,6 +50,59 @@ n=$(psqlq "SELECT count(*) FROM carrier c
              AND NOT EXISTS (SELECT 1 FROM carrier_extent_snapshot s WHERE s.carrier_id=c.id)")
 echo "count: $n  (these get the default 800km buffer; OK for small/regional carriers)"
 
+section "Orphan admixture_event carrier refs"
+# parent_carriers / result_carriers entries that don't match a real carrier id.
+# These cause the AdmixtureAtlas curves and the lineage BFS to silently drop
+# nodes — once happened with CARR_HIST_TANG vs CARR_HIST_TANG_CHINESE.
+n=$(psqlq "
+WITH refs AS (
+  SELECT id, unnest(parent_carriers) AS cid FROM admixture_event
+  UNION ALL
+  SELECT id, unnest(result_carriers) AS cid FROM admixture_event
+)
+SELECT count(*) FROM refs WHERE cid NOT IN (SELECT id FROM carrier)")
+echo "count: $n"
+if [[ "$n" -gt 0 ]]; then
+  echo "first 15:"
+  psqlq "
+  WITH refs AS (
+    SELECT id, unnest(parent_carriers) AS cid FROM admixture_event
+    UNION ALL
+    SELECT id, unnest(result_carriers) AS cid FROM admixture_event
+  )
+  SELECT id AS event_id, cid AS missing_carrier_ref FROM refs
+  WHERE cid NOT IN (SELECT id FROM carrier)
+  ORDER BY id, cid LIMIT 15"
+fi
+
+section "Stale Wikipedia title overrides"
+# Keys in frontend/src/lib/wikipedia.ts that don't match any current carrier
+# id — those carriers fall through to the display_name fallback, often
+# resolving to a less ideal page (or 404). Once happened with CARR_HIST_TANG
+# being renamed to CARR_HIST_TANG_CHINESE.
+WIKI_FILE="$(cd "$(dirname "$0")/.." && pwd)/frontend/src/lib/wikipedia.ts"
+if [[ -f "$WIKI_FILE" ]]; then
+  # Only treat lines that look like an object-literal entry: leading whitespace,
+  # a CARR_* identifier, then ':'. This avoids false positives from comments.
+  # BSD sed doesn't grok `\s`, so use the POSIX class.
+  wiki_keys=$(grep -oE '^[[:space:]]*CARR_[A-Z_0-9]+:' "$WIKI_FILE" \
+                | sed -E 's/^[[:space:]]+//; s/:$//' | sort -u)
+  if [[ -n "$wiki_keys" ]]; then
+    db_keys=$(psqlq "SELECT id FROM carrier ORDER BY id" | sort -u)
+    stale=$(comm -23 <(echo "$wiki_keys") <(echo "$db_keys") || true)
+    stale_count=$(echo "$stale" | grep -c . || true)
+    echo "count: $stale_count"
+    if [[ "$stale_count" -gt 0 ]]; then
+      echo "first 15:"
+      echo "$stale" | head -15
+    fi
+  else
+    echo "count: 0  (no overrides in wikipedia.ts)"
+  fi
+else
+  echo "count: 0  (wikipedia.ts not found at $WIKI_FILE)"
+fi
+
 section "Trait-domain enum coverage in trait_mix"
 echo "domain breakdown:"
 psqlq "SELECT domain, count(*) AS rows, count(DISTINCT carrier_id) AS carriers

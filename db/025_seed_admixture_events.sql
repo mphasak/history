@@ -324,7 +324,7 @@ INSERT INTO admixture_event (id, display_name, year_min, year_max, centroid,
    ARRAY['EAST_ASIAN']::text[],
    ARRAY['EAST_ASIAN']::text[],
    ARRAY['CARR_HIST_HAN_CHINESE_EMPIRE']::text[],
-   ARRAY['CARR_HIST_MODERN_HAN','CARR_HIST_TANG']::text[],
+   ARRAY['CARR_HIST_MODERN_HAN','CARR_HIST_TANG_CHINESE']::text[],
    3, 'demographic_swamp', 'DEDUCED_PHASE_0'),
 
   ('ADMIX_ARAB_CONQUESTS',

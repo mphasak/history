@@ -48,10 +48,19 @@ Add a flow whenever a regression bites — see `golden.sh` for the pattern.
 - Carriers with no `carrier_trait_mix` rows.
 - Carriers without any `claim` row.
 - Carriers without a `carrier_threat` row that *probably should* have one
-  (active for >500 years AND no [AUTO-THREAT] claim).
-- Carriers without a `Wikipedia` mapping (frontend `lib/wikipedia.ts`)
-  whose `display_name` doesn't match a sensible URL slug.
-- Spec files in unexpected modified state.
+  (active for >500 years AND no `[AUTO-THREAT]` claim).
+- Carriers without a `carrier_extent_snapshot` (relying on the buffered
+  fallback — fine for small/regional carriers, worth surfacing for empires).
+- Trait-domain coverage breakdown of `carrier_trait_mix` (genetic /
+  linguistic / religious row counts).
+- Per-region carrier counts via a coarse centroid bucketing.
+- **Orphan admixture_event refs** — `parent_carriers` /
+  `result_carriers` entries that don't match a real carrier id
+  (silent today; once happened with `CARR_HIST_TANG` vs.
+  `CARR_HIST_TANG_CHINESE`).
+- **Stale Wikipedia title overrides** — keys in
+  `frontend/src/lib/wikipedia.ts` whose carrier id no longer exists,
+  meaning the inspector falls through to the `display_name` fallback.
 
 Drift output is plain text intended for an LLM to read and triage. Counts
 + first 10 examples per category; full lists via the underlying SQL.

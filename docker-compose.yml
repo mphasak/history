@@ -423,6 +423,38 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Threats for the prominent long-lived historical carriers that
+  # remained empty after gap-threats-seed (Sumerians, Berbers, Bell
+  # Beaker, Holy Roman Empire, Heian-Tokugawa Japan, Ming/Qing China,
+  # Anasazi/Hohokam/Fremont, Sogdians, etc.). Tagged
+  # [AUTO-THREAT-027]; idempotent.
+  historical-gap-threats-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      carriers-seed:
+        condition: service_completed_successfully
+      holocene-carriers-seed:
+        condition: service_completed_successfully
+      temporal-bridge-seed:
+        condition: service_completed_successfully
+      postclassical-bridge-seed:
+        condition: service_completed_successfully
+      post-columbian-seed:
+        condition: service_completed_successfully
+      carrier-threats-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/027_seed_threats_for_historical_gap_carriers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Modern continental carriers (Modern USA / Canada / Mexico) so that
   # post-WWII N America isn't a couple of regional dots.
   modern-continental-seed:
@@ -628,6 +660,8 @@ services:
       hominin-archaic-seed:
         condition: service_completed_successfully
       gap-threats-seed:
+        condition: service_completed_successfully
+      historical-gap-threats-seed:
         condition: service_completed_successfully
       linguistic-traits-seed:
         condition: service_completed_successfully

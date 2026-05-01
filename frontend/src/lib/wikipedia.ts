@@ -59,17 +59,17 @@ export const CARRIER_WIKIPEDIA_TITLES: Record<string, string> = {
   // Historical empires — prefer "<X> people" articles where they exist
   // and have a portrait / human image in the lead.
   CARR_HIST_ROMAN: 'Romans',                     // "Roman Empire" leads with a map
-  CARR_HIST_GREEK: 'Ancient_Greeks',
   CARR_HIST_GREEK_CLASSICAL: 'Ancient_Greeks',
   CARR_HIST_BYZANTINE: 'Byzantine_people',
   CARR_HIST_OTTOMAN: 'Ottomans',                 // people
-  CARR_HIST_HAN: 'Han_Chinese',                  // not Han_dynasty (map)
-  CARR_HIST_TANG: 'Tang_dynasty',
+  CARR_HIST_HAN_CHINESE_EMPIRE: 'Han_Chinese',   // not Han_dynasty (map)
+  CARR_HIST_MODERN_HAN: 'Han_Chinese',
+  CARR_HIST_TANG_CHINESE: 'Tang_dynasty',
   CARR_HIST_MONGOL: 'Mongols',
   CARR_HIST_MAYA_CLASSICAL: 'Maya_peoples',      // not Maya_civilization (map)
   CARR_HIST_AZTEC: 'Aztecs',                     // not Aztec_Empire
   CARR_HIST_INCA: 'Inca_people',                 // not Inca_Empire
-  CARR_HIST_KHMER: 'Khmer_people',
+  CARR_HIST_KHMER_ANGKOR: 'Khmer_people',
   CARR_HIST_AKSUMITE: 'Aksumites',
   CARR_HIST_ABBASID: 'Abbasid_Caliphate',
   CARR_HIST_ACHAEMENID: 'Persians',              // people, not "Achaemenid Empire" (map)
@@ -83,9 +83,9 @@ export const CARRIER_WIKIPEDIA_TITLES: Record<string, string> = {
   CARR_HIST_EGYPT_OK: 'Ancient_Egyptians',       // not "Old Kingdom" (map)
   CARR_HIST_EGYPT_MK_NK: 'Ancient_Egyptians',
   CARR_HIST_NUBIAN_KUSHITE: 'Nubians',
-  CARR_HIST_VIKING: 'Vikings',
-  CARR_HIST_GERMANIC: 'Germanic_peoples',
-  CARR_HIST_CELTIC: 'Celts',
+  CARR_HIST_NORSE: 'Vikings',
+  CARR_HIST_GERMANIC_IRON_AGE: 'Germanic_peoples',
+  CARR_HIST_CELTS: 'Celts',
   CARR_HIST_SCYTHIAN: 'Scythians',
   CARR_HIST_TURKIC_GOKTURK: 'G%C3%B6kturks',     // people, not "Khaganate"
   CARR_HIST_RASHIDUN_UMAYYAD: 'Arabs',

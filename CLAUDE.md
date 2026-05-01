@@ -221,7 +221,7 @@ just doesn't auto-activate all default-actives any more.
 
 The slider (`frontend/src/components/YearSlider.tsx`) is piecewise-log:
 **slider position [0, 200] → year [-10 Mya, -300 kya]** (deep time, 20% of bar) and
-**[200, 1000] → year [-300 kya, 2025]** (sapiens, 80% of bar). Both regions are
+**[200, 1000] → year [-300 kya, 2026]** (sapiens, 80% of bar). Both regions are
 log-scaled in years-before-present so recent history gets proportionally more
 positions. The amber tick at 20% marks the deep-time/sapiens boundary, and there
 are click-to-jump epoch labels along the bottom.
@@ -259,10 +259,12 @@ that runs after `ingest`. It is idempotent (DELETE+INSERT keyed on
 `docker compose down -v`. New paleo features should follow the same ID prefix
 convention.
 
-### Four idempotent seed services chain after ingest
+### Idempotent seed services chain after ingest
 
-The `db/00{3,4,5,6}_seed_*.sql` files are each applied by a dedicated
-compose service that runs after `ingest`:
+`db/0NN_seed_*.sql` files are each applied by a dedicated compose
+service that runs after `ingest`. The chain has grown over time —
+there are now ~24 seed services covering the full set (`db/003`
+through `db/026`). The originating four are:
 
 1. **`paleo-seed`** (`003_seed_paleo_features.sql`) — ice-sheet polygons +
    paleoclimate keyframes (`PF_PALEO_*`, `PCS_PALEO_*`).
@@ -291,10 +293,22 @@ compose service that runs after `ingest`:
    `[date_min_year, date_max_year]` window covers the current slider
    year so the section auto-updates as the user scrubs.
 
-Each seed is idempotent (DELETE+INSERT keyed on stable ID prefixes or
-on the `[AUTO-PROVENANCE]` statement tag) so existing pgdata volumes
-pick up edits without requiring `docker compose down -v`. The backend
-service waits on all four via `service_completed_successfully`.
+The remaining ~19 services (008-026) extend coverage:
+historical-place labels, per-year territory snapshots, Holocene /
+forager / regional / temporal-bridge / post-Columbian / modern-
+continental / post-classical-bridge gap-filler carriers, missing
+trait_mix backfills, hominin-archaic enrichment, threats for gap
+carriers, linguistic + religion traits, plight narratives, and the
+admixture-event drama feature (the headline UI on the timeline).
+See `docker-compose.yml` for the current dependency graph and
+`db/0NN_seed_*.sql` for the file-by-file content.
+
+Each seed is idempotent (DELETE+INSERT keyed on stable ID prefixes
+or on a tagged statement prefix like `[AUTO-PROVENANCE]` /
+`[AUTO-THREAT]` / `[AUTO-LING-022]` / etc.) so existing pgdata
+volumes pick up edits without requiring `docker compose down -v`.
+The backend service waits on every seed via
+`service_completed_successfully`.
 
 ### Disagreement detection happens at the *claim* layer
 
@@ -378,6 +392,8 @@ the lifetime of the map, so source existence is the right gate.
 | `db/008_historical_places.sql` | `historical_place` table + 64 era-appropriate city/region labels keyed by `[date_min_year, date_max_year]` |
 | `db/009_carrier_territory_snapshots.sql` | `carrier_extent_snapshot` table + ~36 territorial polygons that the resolver picks per-year via `LATERAL` lookup |
 | `db/010_seed_holocene_carriers.sql` | 32 early-to-mid Holocene carriers filling regional gaps for ~-7000 to -1500 (`CARR_HIST_HOL_*` prefix) |
+| `db/011_holocene_carrier_threats.sql` | Threats for Holocene gap-filler + older forager/Mesolithic carriers (Cucuteni-Trypillia / Predynastic Egyptian / Yangshao / etc.); shares the `[AUTO-THREAT]` idempotency tag |
+| `db/012_seed_forager_carriers.sql` | Forager / aceramic-Neolithic regional coverage so a screenshot at ~11 kya shows ~30 dots globally instead of ~10 (`CARR_HIST_FOR_*` prefix) |
 | `db/013_seed_regional_gap_carriers.sql` | 31 region/era gap-fillers (`CARR_HIST_GAP_*` prefix): Andean / Mesoamerican / Caribbean / sub-Saharan / Pacific / Arctic / additional N. American carriers, all cited via DEDUCED_PHASE_0 |
 | `db/014_seed_missing_trait_mixes.sql` | Editorial best-effort ancestry compositions for the 93 carriers from 010/012/013 that lacked trait_mix; tagged `[AUTO-TRAITMIX-014]`, cited via DEDUCED_PHASE_0 |
 | `db/015_seed_modern_us_trait_mixes.sql` | Modern-US trait_mix for `CARR_RURAL_SOUTH_US_2025` + `CARR_SF_BAY_AREA_2025` so the multi-hop lineage BFS can trace back through European Bronze Age / OOA to Neanderthal; tagged `[AUTO-TRAITMIX-015]` |
@@ -391,11 +407,20 @@ the lifetime of the map, so source existence is the right gate.
 | `db/023_seed_religion_traits.sql` | First-class religion / ideological-tradition traits (Christianity / Islam / Buddhism / Hinduism / Judaism / Confucianism / Zoroastrianism / etc.) + 89 era-windowed assignments capturing conversion (Roman → Christianity ~400; Vikings → Christianity ~1100; Mali → Islam ~1300); tagged `[AUTO-RELIGION-023]` |
 | `db/024_seed_plight_narratives.sql` | `carrier_plight` table + 25 editorial 1-2-paragraph narratives (everyday life, origin, ending) per carrier — pairs with the itemized Threats list |
 | `db/025_seed_admixture_events.sql` | `admixture_event` table + 16 fusion moments (OOA × Neanderthal, Bering, Yamnaya into Europe, Steppe into S Asia, Bantu, Lapita, Han southward, Arab conquests, Mongol expansion, European colonization, Atlantic slave trade, etc.); each tagged with severity 1-5 and `rupture_kind` (gradual_blend / elite_dominance / demographic_swamp / violent_replacement / forced_diaspora / island_settlement). The headline "drama" feature — surfaced via the AdmixtureTimeline above the year slider and the on-map glow when the slider intersects an event window. |
+| `db/026_seed_postclassical_bridge_carriers.sql` | 16 bridge carriers covering the 1500-1900 demographic gap between classical empires and modern carriers — Ming/Qing China, Edo Japan, Joseon Korea, Delhi Sultanate, Safavid/Qajar Iran, Vietnam dynasties, Ayutthaya, Majapahit/Mataram, Renaissance Europe, Romanov Russia, Tudor/Stuart England, Habsburg Spain, Italian city-states, Polish-Lithuanian Commonwealth, French Kingdom, Holy Roman Empire (`CARR_HIST_BRIDGE_PC_*` prefix) |
+| `db/027_seed_threats_for_historical_gap_carriers.sql` | Threats for 20+ prominent long-lived historical carriers that previously had none (Sumerian, Bell Beaker, Anatolian Farmers, Iran Neolithic, Norse, Berber, several Bridge_PC empires, Sogdians, Hongshan/Hemudu, Anasazi/Hohokam/Fremont); tagged `[AUTO-THREAT-027]` |
 | `ingest/ingest.py` | Spreadsheet → Postgres; idempotent |
-| `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, clickPoint |
+| `frontend/src/state.ts` | Zustand store: year, bbox, activePerspectives, renderMode, vizMode, lineageMode, lineageAnimating, lineagePreviewCarrierId, carrierColorMode, selectedAdmixtureEventId, admixtureAtlasOpen, clickPoint |
 | `frontend/src/components/Map.tsx` | MapLibre wrapper; export is `WorldMap` (not `Map`); also exports `DOMAIN_COLORS` used by `Legend` |
 | `frontend/src/lib/clusters.ts` | Per-carrier color resolution for the Color: Cluster mode — palette keyed on the dominant ancestry trait (Steppe_MLBA blue, ANI violet, ANATOLIAN_FARMER lime, etc.); fallback hash-palette for unknown trait_ids |
 | `frontend/src/lib/migrationRoutes.ts` | Hand-curated routing for lineage connector lines — bends edges through known migration choke points (Bering, Khyber, Levant, Wallacea, SE-Asia coastal route) when endpoints straddle one. Pulse dots interpolate along the resulting polyline. |
+| `frontend/src/lib/timeScale.ts` | Shared piecewise-log time-scale helpers (`sliderToYear`, `yearToFraction`, `formatYear`, `PRESENT_YEAR=2026`). Owned by `YearSlider` but imported wherever else the same scale is needed (notably `AdmixtureTimeline`). |
+| `frontend/src/components/YearSlider.tsx` / `YearHeader.tsx` | Year slider (piecewise-log, owns the scale constants) and the giant "1700 CE / Iron Age" header overlay above the map |
+| `frontend/src/components/AdmixtureTimeline.tsx` | Headline "drama" lane above the year slider — every admixture event from `db/025` rendered as a glowing marker, scaled by severity, colored by rupture_kind. Click jumps the slider + opens the AdmixtureCard |
+| `frontend/src/components/AdmixtureCard.tsx` | Right-side panel for a selected admixture event: parents, results, year window, narrative, severity, rupture_kind |
+| `frontend/src/components/AdmixtureAtlas.tsx` | Expanded multi-row phylogeny — each carrier on its own row, parent→result curves spanning the time axis. Opened from the Expand button next to the AdmixtureTimeline |
+| `frontend/src/components/SearchBox.tsx` | "/ to focus" name search across carriers — debounced; pick a result to snap year + select carrier |
+| `frontend/src/components/LineagePreviewPanel.tsx` | Non-destructive preview panel shown when, in lineage mode, the user clicks a non-focal node (focal carrier stays selected) |
 | `frontend/src/components/Legend.tsx` | Bottom-left legend; swaps content based on vizMode and active paleo features |
 | `frontend/src/components/DetailPanel.tsx` | Right-side carrier panel; renders trait mix + per-perspective claims with stance badges; Wikipedia thumbnail + extract at top via `lib/wikipedia.ts` |
 | `frontend/src/lib/wikipedia.ts` | Client-side Wikipedia REST `page/summary` lookup keyed by carrier_id → article title (with display_name fallback). Cached per session. CORS-allowed, no API key required. |
