@@ -125,6 +125,43 @@ export const CARRIER_WIKIPEDIA_TITLES: Record<string, string> = {
   CARR_HIST_GAP_NAVAJO_APACHE: 'Navajo',           // not Athabaskan_languages
   CARR_HIST_GAP_HAUDENOSAUNEE: 'Iroquois',
 
+  // Foragers / Mesolithic / Holocene continuity carriers — many of
+  // these have a clean "<People> people" article on Wikipedia that
+  // the display_name fallback can't find on its own.
+  CARR_HIST_FOR_KHOISAN_HOL: 'Khoisan',
+  CARR_HIST_KHOE_SAN_ANCESTRAL: 'Khoisan',
+  CARR_HIST_KHOISAN_MODERN: 'Khoisan',
+  CARR_HIST_AFR_EARLY_OOA_SOURCE: 'Recent_African_origin_of_modern_humans',
+  CARR_HIST_FOR_E_AFR_MESO: 'East_African_Stone_Age',
+  CARR_HIST_FOR_HORN_AFR_PASTORAL: 'Cushitic_peoples',
+  CARR_HIST_FOR_S_ASIAN_MESO: 'Mesolithic_South_Asia',
+  CARR_HIST_FOR_TIBETAN_FORAGERS: 'Prehistoric_Tibet',
+  CARR_HIST_FOR_NE_ASIAN_FORAGERS: 'Mesolithic',
+  CARR_HIST_FOR_SIBERIAN_FOREST: 'Siberian_Eurasian_Genetic_History',
+  CARR_HIST_FOR_PACIFIC_NW_FORAGERS: 'Indigenous_peoples_of_the_Pacific_Northwest_Coast',
+  CARR_HIST_FOR_WESTERN_ARCHAIC: 'Archaic_period_in_North_America',
+  CARR_HIST_FOR_MESOAMER_ARCHAIC: 'Archaic_stage',
+  CARR_HIST_FOR_ANDEAN_ARCHAIC: 'Andean_preceramic',
+  CARR_HIST_FOR_AMAZON_FORAGERS: 'History_of_the_Amazon_basin',
+  CARR_HIST_FOR_CHINCHORRO: 'Chinchorro_culture',
+  CARR_HIST_FOR_ANATOLIAN_ACERAMIC: 'Pre-Pottery_Neolithic_B',
+  CARR_HIST_FOR_CYPRUS_ACERAMIC: 'Aceramic_Neolithic',
+  CARR_HIST_FOR_ZAGROS_ACERAMIC: 'Pre-Pottery_Neolithic',
+  CARR_HIST_FOR_OASIS_GREATER_CASPIAN: 'Caspian_Mesolithic',
+  CARR_HIST_FOR_GOBEKLI: 'G%C3%B6bekli_Tepe',
+  CARR_HIST_FOR_KEBARAN: 'Kebaran',
+  CARR_HIST_FOR_LEVANT_PPNA: 'Pre-Pottery_Neolithic_A',
+  CARR_HIST_FOR_LEVANT_PPNB: 'Pre-Pottery_Neolithic_B',
+  CARR_HIST_FOR_LEPENSKI_VIR: 'Lepenski_Vir',
+  CARR_HIST_FOR_MAGLEMOSE: 'Maglemosian_culture',
+  CARR_HIST_FOR_KARELIAN_MESO: 'Mesolithic_Europe',
+  CARR_HIST_FOR_IBERIA_MESO: 'Iberian_Mesolithic',
+  CARR_HIST_FOR_ITALY_MESO: 'Italian_Mesolithic',
+  CARR_HIST_FOR_KOREA_CHULMUN: 'Jeulmun_pottery_period',
+  CARR_HIST_FOR_PENGTOUSHAN: 'Pengtoushan_culture',
+  CARR_HIST_FOR_SAQQAQ: 'Saqqaq_culture',
+  CARR_HIST_FOR_SAAMI_ANCESTRAL: 'Sami_people',
+
   // Hominin carriers (added in db/020).
   CARR_HOMININ_HOMO_HABILIS: 'Homo_habilis',
   CARR_HOMININ_AFRICAN_ERECTUS: 'Homo_ergaster',
@@ -158,6 +195,25 @@ export const CARRIER_WIKIPEDIA_TITLES: Record<string, string> = {
   CARR_HIST_BRIDGE_COLONIAL_MESO: 'New_Spain',
   CARR_HIST_BRIDGE_GARAMANTES: 'Garamantes',
   CARR_HIST_BRIDGE_ZAGWE: 'Zagwe_dynasty',
+
+  // Post-classical bridge carriers (db/026) — fill the 1500-1900
+  // coverage gap between Classical empires and the Modern carriers.
+  CARR_HIST_BRIDGE_PC_MING_QING: 'Ming_dynasty',
+  CARR_HIST_BRIDGE_PC_HEIAN_TOKUGAWA: 'Edo_period',
+  CARR_HIST_BRIDGE_PC_GORYEO_JOSEON: 'Joseon',
+  CARR_HIST_BRIDGE_PC_DELHI_SULTANATE: 'Delhi_Sultanate',
+  CARR_HIST_BRIDGE_PC_SAFAVID_QAJAR: 'Safavid_Iran',
+  CARR_HIST_BRIDGE_PC_VIETNAM_DYNASTIES: 'L%C3%AA_dynasty',
+  CARR_HIST_BRIDGE_PC_AYUTTHAYA_RATTANAKOSIN: 'Ayutthaya_Kingdom',
+  CARR_HIST_BRIDGE_PC_MAJAPAHIT_MATARAM: 'Majapahit',
+  CARR_HIST_BRIDGE_PC_RENAISSANCE_EUROPE: 'Renaissance',
+  CARR_HIST_BRIDGE_PC_ROMANOV_RUSSIA: 'Russian_Empire',
+  CARR_HIST_BRIDGE_PC_TUDOR_STUART: 'Tudor_period',
+  CARR_HIST_BRIDGE_PC_HABSBURG_SPAIN: 'Habsburg_Spain',
+  CARR_HIST_BRIDGE_PC_ITALY_RENAISSANCE: 'Italian_Renaissance',
+  CARR_HIST_BRIDGE_PC_POLAND_LITHUANIA: 'Polish%E2%80%93Lithuanian_Commonwealth',
+  CARR_HIST_BRIDGE_PC_FRENCH_KINGDOM: 'Kingdom_of_France',
+  CARR_HIST_BRIDGE_PC_HOLY_ROMAN: 'Holy_Roman_Empire',
 
   // Post-Columbian / colonial carriers (db/017, db/019).
   CARR_HIST_POST1492_COLONIAL_NA: 'Pilgrims_(Plymouth_Colony)',  // people, not the colonial-history article (which is text-heavy)
@@ -198,6 +254,14 @@ function urlForTitle(title: string): string {
   return `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`
 }
 
+/** Wikipedia search URL — used as the absolute fallback "Read on
+ * Wikipedia" target when no canonical page summary can be retrieved.
+ * Always works because Wikipedia's search lands the user *somewhere*
+ * relevant. */
+export function wikipediaSearchUrl(displayName: string): string {
+  return `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(displayName)}`
+}
+
 export async function fetchCarrierImage(
   carrierId: string,
   displayName: string,
@@ -218,12 +282,14 @@ export async function fetchCarrierImage(
       })
       if (!res.ok) return null
       const data = await res.json()
-      if (!data?.thumbnail?.source) {
-        // No thumbnail attached to the page — treat as a miss.
-        return null
-      }
+      // We previously bailed when no thumbnail was attached. That
+      // hides a perfectly good Wikipedia article + extract just
+      // because the page doesn't lead with a photo. Better behavior:
+      // surface the summary regardless; the panel renders the link
+      // even when there's no thumbnail.
+      if (!data?.title) return null
       return {
-        title: data.title ?? title,
+        title: data.title,
         extract: data.extract,
         thumbnail: data.thumbnail,
         contentUrl: data.content_urls?.desktop?.page,

@@ -9,7 +9,7 @@ import {
   CarrierPlight,
 } from '../api'
 import { useWorldQuery, usePerspectives } from '../hooks/useWorldQuery'
-import { fetchCarrierImage, WikipediaSummary } from '../lib/wikipedia'
+import { fetchCarrierImage, wikipediaSearchUrl, WikipediaSummary } from '../lib/wikipedia'
 
 const THREAT_TYPE_LABEL: Record<string, string> = {
   climate: 'Climate',
@@ -255,46 +255,55 @@ export function DetailPanel() {
           back. Many carriers (gene-component populations, gap-fillers
           without dedicated articles) have no Wikipedia entry, in which
           case this section is silently omitted. */}
-      {/* Wikipedia thumbnail + extract + Read-more link. The whole image
-          is a link to the article, plus an explicit "Read on Wikipedia"
-          link below so users who skip the image still see it. */}
-      {wiki && (
-        <div className="border-b border-gray-700">
-          {wiki.thumbnail && (
-            <a
-              href={wiki.contentUrl ?? '#'}
-              target="_blank"
-              rel="noreferrer"
-              className="block group"
-              title={`From Wikipedia: ${wiki.title}`}
-            >
-              <img
-                src={wiki.thumbnail.source}
-                alt={wiki.title}
-                className="w-full h-40 object-cover group-hover:opacity-90 transition-opacity"
-                loading="lazy"
-              />
-            </a>
-          )}
-          <div className="px-4 py-2 text-[10px] leading-snug">
-            {wiki.extract && (
-              <p className="text-[11px] text-gray-300 line-clamp-3 mb-1.5">
-                {wiki.extract}
-              </p>
-            )}
-            {wiki.contentUrl && (
+      {/* Wikipedia thumbnail + extract + Read-more link.
+          ALWAYS shows a "Read on Wikipedia" link — when no canonical
+          page summary is found we fall back to a Wikipedia *search*
+          URL with the carrier's display_name. So every carrier has
+          *some* path to further reading; only the thumbnail + extract
+          are gated on the API returning a real summary. */}
+      {(() => {
+        const focal = headerCarrier
+        const dn = focal?.display_name ?? selectedCarrierId
+        const linkUrl = wiki?.contentUrl ?? wikipediaSearchUrl(dn)
+        const linkText = wiki?.title
+          ? `Read on Wikipedia → ${wiki.title}`
+          : `Search Wikipedia for "${dn}"`
+        return (
+          <div className="border-b border-gray-700">
+            {wiki?.thumbnail && (
               <a
-                href={wiki.contentUrl}
+                href={linkUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="block group"
+                title={`From Wikipedia: ${wiki.title ?? dn}`}
+              >
+                <img
+                  src={wiki.thumbnail.source}
+                  alt={wiki.title ?? dn}
+                  className="w-full h-40 object-cover group-hover:opacity-90 transition-opacity"
+                  loading="lazy"
+                />
+              </a>
+            )}
+            <div className="px-4 py-2 text-[10px] leading-snug">
+              {wiki?.extract && (
+                <p className="text-[11px] text-gray-300 line-clamp-3 mb-1.5">
+                  {wiki.extract}
+                </p>
+              )}
+              <a
+                href={linkUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="text-blue-400 hover:text-blue-300 underline decoration-dotted"
               >
-                Read on Wikipedia → {wiki.title}
+                {linkText}
               </a>
-            )}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       <div className="p-4 space-y-5">
         {activePerspectives.map((pid) => {

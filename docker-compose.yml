@@ -253,6 +253,30 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Post-classical bridge carriers (db/026): 16 carriers covering the
+  # 1500-1900 demographic gap between classical empires and the Modern
+  # carriers — Ming/Qing China, Edo Japan, Joseon Korea, Delhi
+  # Sultanate, Safavid/Qajar Iran, Vietnam dynasties, Ayutthaya,
+  # Majapahit/Mataram, Renaissance Europe, Romanov Russia, Tudor /
+  # Stuart England, Habsburg Spain, Italian city-states, Polish-
+  # Lithuanian Commonwealth, French Kingdom, Holy Roman Empire.
+  postclassical-bridge-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      carriers-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/026_seed_postclassical_bridge_carriers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Admixture events: 16 fusion moments (OOA × Neanderthal, Bering, Steppe-into-
   # Europe, Steppe-into-South-Asia, Bantu, Lapita, Han southward, Arab conquests,
   # Mongols, European colonization, Atlantic slave trade, etc.). Adds the
@@ -612,6 +636,8 @@ services:
       plight-seed:
         condition: service_completed_successfully
       admixture-seed:
+        condition: service_completed_successfully
+      postclassical-bridge-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim
