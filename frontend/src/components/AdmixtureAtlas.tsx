@@ -30,6 +30,7 @@ import { useStore } from '../state'
 import { api, AdmixtureEvent, GeoPoint } from '../api'
 import { yearToFraction, formatYear } from '../lib/timeScale'
 import { colorForTraitId } from '../lib/clusters'
+import { barHeightForCarrier, formatPopulation, POPULATION_ESTIMATES } from '../lib/populationEstimates'
 
 interface CarrierMeta {
   id: string
@@ -41,8 +42,10 @@ interface CarrierMeta {
   dominant_trait: string | null
 }
 
-const ROW_H = 26
-const BAR_H = 14
+const ROW_H = 28
+// Per-carrier bar height now comes from `lib/populationEstimates.ts`
+// (log-scaled by peak population) — min 3 px for tiny island bands,
+// max 22 px for continent-scale modern populations.
 const LABEL_W = 240   // left gutter for carrier display_name
 const TIME_W_MIN = 1200 // minimum width of the time region
 const PADDING_TOP = 16
@@ -323,8 +326,14 @@ export function AdmixtureAtlas() {
               const parent = carriers[e.parentId]
               const result = carriers[e.resultId]
               if (!parent || !result) return null
+              const parentBar = barHeightForCarrier(parent.id)
+              const resultBar = barHeightForCarrier(result.id)
               const px = xAt(parent.date_max_year)
+              // Anchor the curve to the *bar's right edge mid-line*, not
+              // a fixed ROW_H/2, so bars of varying thickness still
+              // connect cleanly through the curve.
               const py = PADDING_TOP + (layout.rowById[e.parentId] ?? 0) * ROW_H + ROW_H / 2
+              void parentBar; void resultBar
               const rx = xAt(result.date_min_year)
               const ry = PADDING_TOP + (layout.rowById[e.resultId] ?? 0) * ROW_H + ROW_H / 2
               const isHover = hoverEdge === `${e.eventId}|${e.parentId}|${e.resultId}`
@@ -346,20 +355,29 @@ export function AdmixtureAtlas() {
               )
             })}
 
-            {/* Carrier rows: label + bar */}
+            {/* Carrier rows: label + bar.
+                Bar HEIGHT is log-scaled by peak population (see
+                lib/populationEstimates.ts). Tiny island bands like
+                Floresiensis (5K) render as a 3-4 px line; continent-
+                scale modern populations like Modern Han (1.4 B) render
+                as a 22 px slab. The visual encodes "how big was this
+                population" — a key part of the drama Reich highlights:
+                small ghost populations fused into huge modern ones. */}
             {layout.rows.map(({ carrier: c, rowIndex }) => {
               const x1 = xAt(c.date_min_year)
               const x2 = xAt(c.date_max_year)
-              const y = PADDING_TOP + rowIndex * ROW_H + (ROW_H - BAR_H) / 2
+              const barH = barHeightForCarrier(c.id)
+              const y = PADDING_TOP + rowIndex * ROW_H + (ROW_H - barH) / 2
               const fill = c.dominant_trait
                 ? colorForTraitId(c.dominant_trait)
                 : '#475569'
+              const popEstimate = POPULATION_ESTIMATES[c.id]
               return (
                 <g key={c.id}>
                   {/* Label (left gutter) */}
                   <text
                     x={LABEL_W - 8}
-                    y={y + BAR_H / 2 + 3}
+                    y={PADDING_TOP + rowIndex * ROW_H + ROW_H / 2 + 3}
                     fill="#cbd5e1"
                     fontSize={10}
                     textAnchor="end"
@@ -376,7 +394,7 @@ export function AdmixtureAtlas() {
                   </text>
                   {/* Bar */}
                   <rect
-                    x={x1} y={y} width={Math.max(2, x2 - x1)} height={BAR_H}
+                    x={x1} y={y} width={Math.max(2, x2 - x1)} height={barH}
                     fill={fill}
                     stroke="#0f172a"
                     strokeWidth={1}
@@ -391,6 +409,7 @@ export function AdmixtureAtlas() {
                   >
                     <title>
                       {c.display_name} · {formatYear(c.date_min_year)} — {formatYear(c.date_max_year)}
+                      {popEstimate ? ` · ~${formatPopulation(popEstimate)} at peak` : ''}
                       {c.dominant_trait ? ` · dominant ${c.dominant_trait}` : ''}
                     </title>
                   </rect>

@@ -383,19 +383,23 @@ function useMapInstance({
         layout: {
           'text-field': ['get', 'display_name'],
           'text-font': ['Noto Sans Regular'],
-          'text-size': 11,
-          'text-offset': [0, 1.5],
+          // Bumped from 11 → 14: the previous size was hard to read
+          // against the basemap raster, especially in dense regions.
+          'text-size': 14,
+          'text-offset': [0, 1.4],
           'text-anchor': 'top',
           // Cap label rendering at zoomed-out levels to avoid the world map turning
           // into a wall of overlapping text — labels appear once you zoom in.
           'text-allow-overlap': false,
           'text-optional': true,
-          'text-padding': 4,
+          'text-padding': 6,
         },
         paint: {
           'text-color': '#ffffff',
           'text-halo-color': '#000000',
-          'text-halo-width': 1,
+          // Slightly fatter halo so the heavier text reads cleanly even
+          // when it sits on top of map labels or shelf overlays.
+          'text-halo-width': 1.4,
         },
         minzoom: 3,
       })
