@@ -176,9 +176,13 @@ export function AdmixtureAtlas() {
 
   if (!open) return null
 
-  // Sizing
-  const innerWidth = Math.max(TIME_W_MIN, window.innerWidth - 100)
-  const timeWidth = innerWidth - LABEL_W - 24 // room for right padding
+  // Sizing — the atlas lives inside the map area (above the year slider
+  // footer) so we use viewport width minus a small margin. The footer
+  // is still mouse-active so the user can scrub time while looking at
+  // the atlas; the yellow cursor below updates from the same store
+  // selector that drives the slider.
+  const innerWidth = Math.max(TIME_W_MIN, window.innerWidth - 64)
+  const timeWidth = innerWidth - LABEL_W - 24
   const totalHeight = PADDING_TOP + layout.totalRows * ROW_H + 32
 
   const xAt = (y: number): number => LABEL_W + yearToFraction(y) * timeWidth
@@ -218,25 +222,27 @@ export function AdmixtureAtlas() {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={() => setOpen(false)}
-    >
+    // Position absolutely within App.tsx's main relative region. inset-0
+    // means it covers the map area but NOT the footer below — so the
+    // year slider is still reachable, and dragging it scrubs the cursor
+    // line in the atlas in real time.
+    <div className="absolute inset-0 z-30 bg-gray-950/95 backdrop-blur-sm flex flex-col overflow-hidden border-t border-gray-700">
       <div
-        className="bg-gray-950 text-white border border-gray-700 rounded-lg shadow-2xl w-full max-w-[1600px] max-h-[92vh] flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
+        className="bg-gray-950 text-white flex flex-col overflow-hidden flex-1"
       >
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 shrink-0">
           <div>
             <h2 className="text-sm font-semibold">Admixture Atlas</h2>
             <p className="text-[11px] text-gray-400 mt-0.5">
               Each row is a population. Curves run from parents to descendants of every
-              admixture event. Color of the curve = rupture kind.
+              admixture event. Color of the curve = rupture kind. Drag the year slider
+              below — the yellow cursor scrubs through the atlas live.
             </p>
           </div>
           <button
             onClick={() => setOpen(false)}
-            className="text-gray-400 hover:text-white text-xl leading-none"
+            className="text-gray-400 hover:text-white text-xl leading-none px-2"
+            title="Close atlas"
             aria-label="Close"
           >
             ×

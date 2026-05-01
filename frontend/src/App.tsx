@@ -342,6 +342,14 @@ export default function App() {
         <div className="absolute top-3 right-3 z-20">
           <AdmixtureCard />
         </div>
+
+        {/* AdmixtureAtlas — docked overlay on the map area. Mounted
+            INSIDE the relative flex-1 region (not at the App root) so
+            the footer with the AdmixtureTimeline + YearSlider stays
+            visible and the user can scrub time while exploring the
+            atlas. The yellow year cursor in the atlas updates live as
+            the slider drags. Hidden until "⤢ Expand atlas" is clicked. */}
+        <AdmixtureAtlas />
       </div>
 
       {/* Footer — admixture timeline + year slider. Timeline goes ABOVE
@@ -351,10 +359,6 @@ export default function App() {
         <AdmixtureTimeline />
         <YearSlider />
       </footer>
-
-      {/* AdmixtureAtlas — full-screen overlay; hidden until user clicks
-          the "Expand atlas" button on the timeline. */}
-      <AdmixtureAtlas />
     </div>
   )
 }
