@@ -3,13 +3,50 @@ import { create } from 'zustand'
 export type RenderMode = 'single' | 'side-by-side' | 'diff-overlay'
 /**
  * Map visualization mode.
+ *
+ * Five "carrier-extent" auditions + the two distinct overlays:
  * - `pointwise`: each archaeological sample (trait_observation) is its own dot.
  * - `fill`: carrier extent polygons; dashed for buffered fallbacks, solid for
- *   authored extents (and territory snapshots).
+ *   authored extents (and territory snapshots). Coast-clipped via the
+ *   ocean-mask layer so buffers don't bleed into the ocean.
+ * - `territory`: the same extents but with stronger borders + higher opacity,
+ *   evoking a Wikipedia distribution map.
+ * - `voronoi`: a Voronoi tessellation of the visible carriers' centroids,
+ *   clipped to land. Every land point is colored by *its nearest known
+ *   carrier* — the most aggressive "the map is never empty" mode.
+ * - `heatmap`: continuous kernel density of carrier centroids, weighted by
+ *   extent area. Soft, no edges.
+ * - `glow`: each carrier rendered as a large soft radial halo. No hard
+ *   borders; nearby carriers blend into a populated wash.
  * - `flow`: migration / propagation arrows (source → destination), colored
  *   by the cultural domain of the event (genetic, technological, …).
+ * - `particles`: SPIKE — each carrier rendered as a bubbling cluster of
+ *   particles doing 2-D Brownian motion around its centroid; migrations
+ *   render as streams of particles flowing from origin to destination.
+ *   Driven by `particleMigrationSource`. In lineage mode the streams
+ *   leave a faded trail rather than a clean line.
  */
-export type VizMode = 'pointwise' | 'fill' | 'flow'
+export type VizMode =
+  | 'pointwise'
+  | 'fill'
+  | 'territory'
+  | 'voronoi'
+  | 'heatmap'
+  | 'glow'
+  | 'flow'
+  | 'particles'
+
+/** Source of migration streams in particle viz mode.
+ *  - `extents`     : per-perspective propagation_events (source → destination
+ *                    of authored migration / spread / influence events).
+ *  - `admixture`   : avg(parent_carriers centroids) → avg(result_carriers
+ *                    centroids) for admixture events whose year window covers
+ *                    the slider year. Streams are colored by rupture_kind.
+ *  - `lineage`     : edges of the focal carrier's lineage BFS (parent → child).
+ *                    Only meaningful when a carrier is selected and lineage
+ *                    mode is on; otherwise the layer falls back to no streams.
+ */
+export type ParticleMigrationSource = 'extents' | 'admixture' | 'lineage'
 /** Map label mode:
  *  - `modern`     : modern political map with present-day place names + borders (default).
  *  - `historical` : clean base + historical place names that match the current year
@@ -61,6 +98,10 @@ interface HistorySimState {
 
   vizMode: VizMode
   setVizMode: (mode: VizMode) => void
+
+  /** Migration-stream source for particle viz mode. Inert in other modes. */
+  particleMigrationSource: ParticleMigrationSource
+  setParticleMigrationSource: (s: ParticleMigrationSource) => void
 
   labelMode: LabelMode
   setLabelMode: (mode: LabelMode) => void
@@ -136,6 +177,9 @@ export const useStore = create<HistorySimState>((set) => ({
 
   vizMode: 'fill',
   setVizMode: (mode) => set({ vizMode: mode }),
+
+  particleMigrationSource: 'admixture',
+  setParticleMigrationSource: (s) => set({ particleMigrationSource: s }),
 
   labelMode: 'none',
   setLabelMode: (mode) => set({ labelMode: mode }),

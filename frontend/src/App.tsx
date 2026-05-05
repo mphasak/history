@@ -22,13 +22,58 @@ import {
   useCarrierLineage,
   useAdmixtureEvents,
 } from './hooks/useWorldQuery'
-import type { RenderMode, VizMode, LabelMode, LineageMode, CarrierColorMode } from './state'
+import type {
+  RenderMode,
+  VizMode,
+  LabelMode,
+  LineageMode,
+  CarrierColorMode,
+  ParticleMigrationSource,
+} from './state'
+
+// Display labels + tooltips for the viz-mode dropdown. The order in the
+// menu mirrors the array used in the JSX.
+const VIZ_MODE_LABELS: Record<VizMode, string> = {
+  pointwise: 'Pointwise',
+  fill: 'Fill (coast-clipped)',
+  territory: 'Territory',
+  voronoi: 'Voronoi tessellation',
+  heatmap: 'Heatmap (density)',
+  glow: 'Glow (soft halos)',
+  flow: 'Flow (migrations)',
+  particles: 'Particles (spike)',
+}
+
+const VIZ_MODE_DESCRIPTIONS: Record<VizMode, string> = {
+  pointwise: 'Each archaeological sample as a single dot — sparse but precise.',
+  fill: 'Carrier extent polygons; buffered fallbacks dashed; the ocean-mask hides any bleed past the coastline.',
+  territory: 'Same extents as Fill but stronger borders + opacity — evokes a Wikipedia distribution map.',
+  voronoi: 'A tessellation of carrier centroids; every visible point on land belongs to its nearest known carrier. Most "populated".',
+  heatmap: 'Continuous kernel density of carrier centroids weighted by extent area.',
+  glow: 'Each carrier rendered as a stack of soft radial halos. No hard borders.',
+  flow: 'Migration / propagation arrows (source → destination), colored by domain.',
+  particles: 'SPIKE — bubbling particle clusters per carrier; migrations stream from origin to destination.',
+}
+
+const PARTICLE_SRC_LABELS: Record<ParticleMigrationSource, string> = {
+  extents: 'Propagation events',
+  admixture: 'Admixture events',
+  lineage: 'Lineage edges',
+}
+
+const PARTICLE_SRC_DESCRIPTIONS: Record<ParticleMigrationSource, string> = {
+  extents: 'Migration streams from this perspective\'s authored propagation_events (source → destination).',
+  admixture: 'Streams from average parent-carrier centroids to average result-carrier centroids for active admixture events. Colored by rupture_kind.',
+  lineage: 'Streams along the focal carrier\'s lineage edges (parent → child). Requires a selected carrier with lineage mode on.',
+}
 
 export default function App() {
   const renderMode = useStore((s) => s.renderMode)
   const setRenderMode = useStore((s) => s.setRenderMode)
   const vizMode = useStore((s) => s.vizMode)
   const setVizMode = useStore((s) => s.setVizMode)
+  const particleMigrationSource = useStore((s) => s.particleMigrationSource)
+  const setParticleMigrationSource = useStore((s) => s.setParticleMigrationSource)
   const labelMode = useStore((s) => s.labelMode)
   const setLabelMode = useStore((s) => s.setLabelMode)
   const carrierColorMode = useStore((s) => s.carrierColorMode)
@@ -114,28 +159,44 @@ export default function App() {
 
         <div className="flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-wide text-gray-500">Viz</span>
-          <div className="flex gap-1">
-            {(['pointwise', 'fill', 'flow'] as VizMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setVizMode(mode)}
-                className={`text-xs px-2 py-1 rounded transition-colors ${
-                  vizMode === mode
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-                title={
-                  mode === 'pointwise'
-                    ? 'Each archaeological sample (trait_observation) as a colored dot'
-                    : mode === 'fill'
-                      ? 'Carrier extent polygons — solid for authored extents, dashed for buffered fallbacks'
-                      : 'Migration / propagation arrows: source → destination, colored by domain'
-                }
+          <select
+            value={vizMode}
+            onChange={(e) => setVizMode(e.target.value as VizMode)}
+            className="text-xs bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 focus:border-emerald-500 focus:outline-none"
+            title={VIZ_MODE_DESCRIPTIONS[vizMode]}
+          >
+            {(['pointwise', 'fill', 'territory', 'voronoi', 'heatmap', 'glow', 'flow', 'particles'] as VizMode[]).map(
+              (mode) => (
+                <option key={mode} value={mode} title={VIZ_MODE_DESCRIPTIONS[mode]}>
+                  {VIZ_MODE_LABELS[mode]}
+                </option>
+              ),
+            )}
+          </select>
+          {vizMode === 'particles' && (
+            <>
+              <span
+                className="text-[10px] uppercase tracking-wide text-gray-500 ml-1"
+                title="Which migration data feeds the particle streams between carriers."
               >
-                {mode === 'pointwise' ? 'Pointwise' : mode === 'fill' ? 'Fill' : 'Flow'}
-              </button>
-            ))}
-          </div>
+                Source
+              </span>
+              <select
+                value={particleMigrationSource}
+                onChange={(e) =>
+                  setParticleMigrationSource(e.target.value as ParticleMigrationSource)
+                }
+                className="text-xs bg-gray-800 text-white border border-gray-700 rounded px-2 py-1 focus:border-emerald-500 focus:outline-none"
+                title={PARTICLE_SRC_DESCRIPTIONS[particleMigrationSource]}
+              >
+                {(['extents', 'admixture', 'lineage'] as ParticleMigrationSource[]).map((s) => (
+                  <option key={s} value={s} title={PARTICLE_SRC_DESCRIPTIONS[s]}>
+                    {PARTICLE_SRC_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

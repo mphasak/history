@@ -1,10 +1,17 @@
 import { useEffect, useRef, useCallback } from 'react'
 import maplibregl from 'maplibre-gl'
+import { Delaunay } from 'd3-delaunay'
 import { WorldResponse, CarrierView, TraitObservationView, PaleoFeature, CarrierLineageResponse, PropagationEventView, AdmixtureEvent } from '../api'
 import { useStore } from '../state'
 import { computeDiff } from './DiffOverlay'
 import { clusterColor } from '../lib/clusters'
 import { routeBetween, pointAlongPolyline } from '../lib/migrationRoutes'
+import {
+  ParticleOverlay,
+  buildMigrationsFromAdmixture,
+  buildMigrationsFromLineage,
+  buildMigrationsFromPropagation,
+} from './ParticleOverlay'
 
 // Domain → hex color (kept in sync with the legend and DetailPanel TraitBar).
 export const DOMAIN_COLORS: Record<string, string> = {
@@ -64,6 +71,181 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
     // hidden in 'historical' / 'none' modes.
     { id: 'osm-labels-tiles', type: 'raster', source: 'osm-labels', minzoom: 0, maxzoom: 19 },
   ],
+}
+
+// Heatmap-weight proxy. Authored extents and territory snapshots get the
+// extent's bbox area in degrees²; buffered fallbacks get a small constant
+// proportional to the carrier-type buffer radius. Result is squashed onto
+// [0, 1] via log so a couple of dominant empires don't blow out the ramp.
+function computeHeatmapWeight(c: CarrierView): number {
+  let degSq = 0
+  if (c.extent_geojson) {
+    try {
+      const g = JSON.parse(c.extent_geojson) as GeoJSON.Geometry
+      const polys = g.type === 'Polygon'
+        ? [g.coordinates]
+        : g.type === 'MultiPolygon' ? g.coordinates : []
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+      for (const poly of polys) {
+        for (const ring of poly) {
+          for (const [x, y] of ring) {
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+          }
+        }
+      }
+      if (Number.isFinite(minX) && Number.isFinite(maxX)) {
+        degSq = (maxX - minX) * (maxY - minY)
+      }
+    } catch {
+      degSq = 0
+    }
+  }
+  if (degSq <= 0) degSq = 25 // ~the area of a 5°×5° buffered fallback
+  // Log-squash: sqrt(area) is a better visual proxy than area itself, then
+  // saturate at the size of a continental empire (~5000 deg²).
+  return Math.min(1, Math.sqrt(degSq) / Math.sqrt(5000))
+}
+
+// Compute Voronoi cells from carrier centroids, clipped to a world bbox.
+// Each output feature carries the source carrier's id + color so the fill
+// layer can paint by cluster. Edge case: a single carrier becomes one cell
+// covering the whole bbox, which is still useful (the entire visible land
+// belongs to that one population).
+const VORONOI_BOUNDS: [number, number, number, number] = [-180, -85, 180, 85]
+
+function computeVoronoiFeatures(
+  carriers: CarrierView[],
+  colorFor: (c: CarrierView) => string,
+  diffCarrierIds: Set<string> | undefined,
+): GeoJSON.Feature[] {
+  const withCentroid = carriers.filter((c) => c.centroid)
+  if (withCentroid.length === 0) return []
+  const points: [number, number][] = withCentroid.map((c) => [
+    c.centroid!.lon,
+    c.centroid!.lat,
+  ])
+  const delaunay = Delaunay.from(points)
+  const voronoi = delaunay.voronoi(VORONOI_BOUNDS)
+  const features: GeoJSON.Feature[] = []
+  for (let i = 0; i < withCentroid.length; i++) {
+    const cellPolygon = voronoi.cellPolygon(i)
+    if (!cellPolygon) continue
+    const c = withCentroid[i]
+    features.push({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [cellPolygon as [number, number][]] },
+      properties: {
+        id: c.id,
+        display_name: c.display_name,
+        color: colorFor(c),
+        disagreed: diffCarrierIds?.has(c.id) ?? false,
+      },
+    })
+  }
+  return features
+}
+
+// Layer-id groupings, one per VizMode. Centralizing here keeps the visibility
+// effect declarative — every mode shows exactly the layers in its bucket and
+// hides every layer that appears in any *other* bucket.
+const VIZ_LAYERS: Record<string, string[]> = {
+  pointwise: ['observations-circle'],
+  fill: [
+    'carrier-extents-fill',
+    'carrier-extents-outline-solid',
+    'carrier-extents-outline-dashed',
+  ],
+  // `territory` shares the carrier-extents source but uses a different paint
+  // expression that's swapped in via the visibility effect below — so the
+  // layer ids are the same as `fill`. The look is determined per-mode.
+  territory: [
+    'carrier-extents-fill',
+    'carrier-extents-outline-solid',
+    'carrier-extents-outline-dashed',
+  ],
+  voronoi: ['voronoi-cells-fill', 'voronoi-cells-outline'],
+  heatmap: ['carriers-heatmap'],
+  glow: ['carriers-glow-far', 'carriers-glow-mid', 'carriers-glow-near'],
+  flow: [
+    'propagation-edges-line',
+    'propagation-arrowhead-circle',
+    'propagation-arrowhead-arrow',
+  ],
+  // Particles mode renders everything via the canvas overlay (see
+  // ParticleOverlay.ts), so it owns no MapLibre layers — the visibility
+  // effect just needs to know to hide every other bucket.
+  particles: [],
+}
+
+// The five "extent-style" modes that should activate the ocean-mask. Pointwise
+// and flow don't need it (they don't paint over land in a way that bleeds
+// into the ocean), and the modern basemap tile is more useful unmasked.
+const VIZ_MODES_WITH_OCEAN_MASK = new Set(['fill', 'territory', 'voronoi', 'heatmap', 'glow'])
+
+function applyVizModeVisibility(
+  map: maplibregl.Map,
+  vizMode: string,
+  lineageActive: boolean,
+) {
+  // In lineage mode the regular layers hide; only the lineage subgraph
+  // (rendered separately) is shown.
+  const setVis = (id: string, v: 'visible' | 'none') => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', v)
+  }
+
+  // Hide every viz-bucket layer first, then turn the active one on.
+  const allVizLayers = new Set<string>()
+  for (const ids of Object.values(VIZ_LAYERS)) for (const id of ids) allVizLayers.add(id)
+  for (const id of allVizLayers) setVis(id, 'none')
+
+  if (!lineageActive) {
+    for (const id of VIZ_LAYERS[vizMode] ?? []) setVis(id, 'visible')
+  }
+
+  // Carrier dot/label visibility: hidden in heatmap (the heatmap *is* the
+  // carriers), in particles (the cluster *is* the carrier), and in lineage
+  // mode; shown otherwise.
+  const showDots = !lineageActive && vizMode !== 'heatmap' && vizMode !== 'particles'
+  for (const id of ['carriers-circle', 'carriers-label']) {
+    setVis(id, showDots ? 'visible' : 'none')
+  }
+
+  // Ocean mask follows the "extent-style" modes.
+  setVis(
+    'ocean-mask-fill',
+    !lineageActive && VIZ_MODES_WITH_OCEAN_MASK.has(vizMode) ? 'visible' : 'none',
+  )
+
+  // Territory mode shares carrier-extents layers with fill but bumps fill
+  // opacity + line width via setPaintProperty. Reset on switch back to fill.
+  if (vizMode === 'territory') {
+    if (map.getLayer('carrier-extents-fill')) {
+      map.setPaintProperty('carrier-extents-fill', 'fill-opacity', [
+        'case',
+        ['get', 'extent_is_real'],
+        0.55,
+        0.30,
+      ])
+    }
+    for (const id of ['carrier-extents-outline-solid', 'carrier-extents-outline-dashed']) {
+      if (map.getLayer(id)) map.setPaintProperty(id, 'line-width', 2.5)
+    }
+  } else if (vizMode === 'fill') {
+    if (map.getLayer('carrier-extents-fill')) {
+      map.setPaintProperty('carrier-extents-fill', 'fill-opacity', [
+        'case',
+        ['get', 'extent_is_real'],
+        0.25,
+        0.12,
+      ])
+    }
+    for (const id of ['carrier-extents-outline-solid', 'carrier-extents-outline-dashed']) {
+      if (map.getLayer(id)) map.setPaintProperty(id, 'line-width', 1.5)
+    }
+  }
 }
 
 interface MapInstanceProps {
@@ -136,6 +318,9 @@ function useMapInstance({
   const labelMode = useStore((s) => s.labelMode)
   const year = useStore((s) => s.year)
   const carrierColorMode = useStore((s) => s.carrierColorMode)
+  const particleMigrationSource = useStore((s) => s.particleMigrationSource)
+  const lineageMode = useStore((s) => s.lineageMode)
+  const particleOverlayRef = useRef<ParticleOverlay | null>(null)
 
   useEffect(() => {
     const container = document.getElementById(containerId)
@@ -148,6 +333,22 @@ function useMapInstance({
       zoom: 2,
     })
     mapRef.current = map
+
+    // Particle overlay: a sibling canvas inside the same container, synced to
+    // the map via map.project() each frame (see ParticleOverlay.ts). Created
+    // immediately so subsequent data effects can populate it; visibility is
+    // toggled by the viz-mode effect below.
+    particleOverlayRef.current = new ParticleOverlay(map, container)
+    if (typeof window !== 'undefined') {
+      ;(window as unknown as { __particles?: unknown }).__particles = particleOverlayRef.current
+    }
+    // Dev convenience: surface a handle so a console session (or a
+    // browser-automation harness) can poke at layer visibility / sources
+    // without traversing React internals. The first map (typically the
+    // single-pane view) wins; side-by-side overwrites with the latest.
+    if (typeof window !== 'undefined') {
+      ;(window as unknown as { __map?: unknown }).__map = map
+    }
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
@@ -318,6 +519,77 @@ function useMapInstance({
         },
       })
 
+      // Ocean mask — paints today's ocean (Natural Earth 110m) back over any
+      // buffered carrier extent that bled past the coastline. Sits ABOVE
+      // carrier-extents-fill so buffers visually clip to land. Color matches
+      // the CartoDB Voyager basemap ocean tone so the user can't tell it's a
+      // mask vs. the underlying tile.
+      //
+      // The paleo / shelf / ice fill+outline layers live BELOW this mask in
+      // source-creation order, so we explicitly `moveLayer` them ABOVE the
+      // mask further down — otherwise an exposed shelf at LGM (or a deep-time
+      // GPlates coastline) would be silently re-painted as modern ocean.
+      map.addSource('ocean-mask', {
+        type: 'geojson',
+        data: '/paleo/world_ocean_mask_110m.geojson',
+      })
+
+      map.addLayer({
+        id: 'ocean-mask-fill',
+        type: 'fill',
+        source: 'ocean-mask',
+        // Hidden in pointwise/flow modes (those don't need the mask, and
+        // hiding it keeps the live basemap tile visible). Re-shown for the
+        // five "extent-style" auditions (fill/territory/voronoi/heatmap/glow).
+        layout: { visibility: 'none' },
+        paint: {
+          // CartoDB Voyager nolabels ocean color — chosen so the mask is
+          // imperceptible against the basemap tiles around the coast.
+          'fill-color': '#a8c6d4',
+          'fill-opacity': 1.0,
+        },
+      })
+
+      // Voronoi tessellation source — populated by a useEffect that
+      // recomputes when the visible carrier set changes. Each cell's
+      // outer ring is the cell polygon and the cell is clipped to the
+      // world rect at compute time; the ocean-mask above hides the
+      // ocean portions.
+      map.addSource('voronoi-cells', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+
+      map.addLayer({
+        id: 'voronoi-cells-fill',
+        type: 'fill',
+        source: 'voronoi-cells',
+        layout: { visibility: 'none' },
+        paint: {
+          'fill-color': [
+            'case',
+            ['get', 'disagreed'], '#ef4444',
+            ['get', 'color'],
+          ],
+          'fill-opacity': 0.45,
+        },
+      })
+
+      map.addLayer({
+        id: 'voronoi-cells-outline',
+        type: 'line',
+        source: 'voronoi-cells',
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': '#0f172a',
+          'line-width': 0.5,
+          'line-opacity': 0.4,
+        },
+      })
+
+      // (Heatmap + glow layers also use the `carriers` source — added below
+      // after the source itself exists.)
+
       // Trait observations (pointwise mode)
       map.addSource('observations', {
         type: 'geojson',
@@ -376,6 +648,85 @@ function useMapInstance({
         },
       })
 
+      // Heatmap layer (vizMode = 'heatmap'). Uses the `carriers` source so
+      // it picks up the same year/bbox-filtered set that drives the dots.
+      // Weighted by the per-feature `heatmap_weight` (extent-area proxy in
+      // the carriers data effect below).
+      map.addLayer({
+        id: 'carriers-heatmap',
+        type: 'heatmap',
+        source: 'carriers',
+        layout: { visibility: 'none' },
+        paint: {
+          'heatmap-weight': [
+            'interpolate', ['linear'], ['get', 'heatmap_weight'],
+            0, 0.1,
+            1, 1.0,
+          ],
+          'heatmap-intensity': [
+            'interpolate', ['linear'], ['zoom'], 0, 0.6, 6, 1.4,
+          ],
+          // Color ramp: transparent → cool → warm. Reads as "where on
+          // the map are populations dense?" without committing to a
+          // specific cluster palette.
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0,    'rgba(0,0,0,0)',
+            0.1,  'rgba(56,189,248,0.4)',   // sky-400
+            0.35, 'rgba(34,211,238,0.55)',  // cyan-400
+            0.6,  'rgba(250,204,21,0.7)',   // yellow-400
+            0.85, 'rgba(249,115,22,0.85)',  // orange-500
+            1.0,  'rgba(239,68,68,0.95)',   // red-500
+          ],
+          'heatmap-radius': [
+            'interpolate', ['linear'], ['zoom'], 0, 30, 6, 90,
+          ],
+          'heatmap-opacity': 0.75,
+        },
+      })
+
+      // Glow layers (vizMode = 'glow'). Three stacked soft circles per
+      // carrier — a big blurry far halo, a medium one, and a tighter
+      // near one — together they read as a smooth radial gradient.
+      map.addLayer({
+        id: 'carriers-glow-far',
+        type: 'circle',
+        source: 'carriers',
+        layout: { visibility: 'none' },
+        paint: {
+          'circle-radius': 110,
+          'circle-color': ['get', 'color'],
+          'circle-blur': 1.2,
+          'circle-opacity': 0.20,
+        },
+      })
+
+      map.addLayer({
+        id: 'carriers-glow-mid',
+        type: 'circle',
+        source: 'carriers',
+        layout: { visibility: 'none' },
+        paint: {
+          'circle-radius': 60,
+          'circle-color': ['get', 'color'],
+          'circle-blur': 1.0,
+          'circle-opacity': 0.30,
+        },
+      })
+
+      map.addLayer({
+        id: 'carriers-glow-near',
+        type: 'circle',
+        source: 'carriers',
+        layout: { visibility: 'none' },
+        paint: {
+          'circle-radius': 30,
+          'circle-color': ['get', 'color'],
+          'circle-blur': 0.6,
+          'circle-opacity': 0.45,
+        },
+      })
+
       map.addLayer({
         id: 'carriers-label',
         type: 'symbol',
@@ -421,6 +772,15 @@ function useMapInstance({
         })
         if (hits.length > 0 && hits[0].properties?.id) {
           onCarrierClick(hits[0].properties.id as string)
+          return
+        }
+        // Voronoi: clicking a cell selects the underlying carrier. Lets the
+        // user click *anywhere on land* in voronoi mode and get a selection.
+        const voronoiHits = map.queryRenderedFeatures(e.point, {
+          layers: ['voronoi-cells-fill'],
+        })
+        if (voronoiHits.length > 0 && voronoiHits[0].properties?.id) {
+          onCarrierClick(voronoiHits[0].properties.id as string)
           return
         }
         onMapClickRef.current?.(e.lngLat.lat, e.lngLat.lng)
@@ -744,34 +1104,30 @@ function useMapInstance({
         },
       })
 
-      // Apply initial viz mode visibility once layers exist. Lineage active
-      // state is read from the prop on each render; at init time we just
-      // honor vizMode — the dedicated visibility effect above handles
-      // subsequent mode/lineage toggles.
-      const v = vizModeRef.current
-      const fillVis = v === 'fill' ? 'visible' : 'none'
-      const pointVis = v === 'pointwise' ? 'visible' : 'none'
-      const flowVis = v === 'flow' ? 'visible' : 'none'
+      // Reorder: paleo / shelf / ice fill+outline layers were created before
+      // the ocean-mask above, so they currently sit BELOW it in z-order. Move
+      // them ABOVE the mask (and below observations) so an exposed shelf at
+      // LGM and a deep-time GPlates coastline both still paint as land —
+      // otherwise the mask would silently re-paint them as modern ocean.
       for (const id of [
-        'carrier-extents-fill',
-        'carrier-extents-outline-solid',
-        'carrier-extents-outline-dashed',
+        'paleo-coastlines-fill',
+        'paleo-coastlines-outline',
+        'continental-shelf-fill',
+        'continental-shelf-outline',
+        'paleo-features-fill',
+        'paleo-features-outline',
       ]) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', fillVis)
+        if (map.getLayer(id)) map.moveLayer(id, 'observations-circle')
       }
-      if (map.getLayer('observations-circle')) {
-        map.setLayoutProperty('observations-circle', 'visibility', pointVis)
-      }
-      for (const id of [
-        'propagation-edges-line',
-        'propagation-arrowhead-circle',
-        'propagation-arrowhead-arrow',
-      ]) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', flowVis)
-      }
+
+      // Apply initial viz mode visibility. The dedicated effect below handles
+      // subsequent toggles; this just sets a sane initial state.
+      applyVizModeVisibility(map, vizModeRef.current, false)
     })
 
     return () => {
+      particleOverlayRef.current?.destroy()
+      particleOverlayRef.current = null
       map.remove()
       mapRef.current = null
     }
@@ -850,9 +1206,15 @@ function useMapInstance({
       const source = map.getSource('carriers') as maplibregl.GeoJSONSource | undefined
       if (!source) return
 
+      // Heatmap weight: rough extent-area proxy on a 0..1 scale. Bigger
+      // carriers (Roman Empire, Modern USA) cast a stronger heat blob;
+      // tiny ones (single archaeological cluster) a weaker one.
+      const weights = carriers.map((c) => Math.min(1, computeHeatmapWeight(c)))
+
       const features: GeoJSON.Feature[] = carriers
-        .filter((c) => c.centroid)
-        .map((c) => ({
+        .map((c, i) => ({ c, w: weights[i] }))
+        .filter(({ c }) => c.centroid)
+        .map(({ c, w }) => ({
           type: 'Feature',
           geometry: {
             type: 'Point',
@@ -866,6 +1228,7 @@ function useMapInstance({
             disagreed: diffCarrierIds?.has(c.id) ?? false,
             has_endorsement: !!c.endorsement,
             endorsement_stance: c.endorsement?.stance ?? null,
+            heatmap_weight: w,
           },
         }))
 
@@ -879,6 +1242,22 @@ function useMapInstance({
     // dropped. Sources, once added during init's `'load'` callback, persist
     // for the lifetime of the map.
     if (map.getSource('carriers')) apply()
+    else map.once('load', apply)
+  }, [carriers, diffCarrierIds, colorFor])
+
+  // Voronoi tessellation source. Recomputes when the carrier set changes;
+  // d3-delaunay is fast enough that doing this on every world fetch is fine
+  // (≤300 points, sub-millisecond).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      const source = map.getSource('voronoi-cells') as maplibregl.GeoJSONSource | undefined
+      if (!source) return
+      const features = computeVoronoiFeatures(carriers, colorFor, diffCarrierIds)
+      source.setData({ type: 'FeatureCollection', features })
+    }
+    if (map.getSource('voronoi-cells')) apply()
     else map.once('load', apply)
   }, [carriers, diffCarrierIds, colorFor])
 
@@ -1311,36 +1690,51 @@ function useMapInstance({
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    const apply = () => {
-      const fillVis = !lineageActive && vizMode === 'fill' ? 'visible' : 'none'
-      const pointVis = !lineageActive && vizMode === 'pointwise' ? 'visible' : 'none'
-      const flowVis = !lineageActive && vizMode === 'flow' ? 'visible' : 'none'
-      const carrierVis = lineageActive ? 'none' : 'visible'
-
-      for (const id of [
-        'carrier-extents-fill',
-        'carrier-extents-outline-solid',
-        'carrier-extents-outline-dashed',
-      ]) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', fillVis)
-      }
-      if (map.getLayer('observations-circle')) {
-        map.setLayoutProperty('observations-circle', 'visibility', pointVis)
-      }
-      for (const id of [
-        'propagation-edges-line',
-        'propagation-arrowhead-circle',
-        'propagation-arrowhead-arrow',
-      ]) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', flowVis)
-      }
-      for (const id of ['carriers-circle', 'carriers-label']) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', carrierVis)
-      }
-    }
+    const apply = () => applyVizModeVisibility(map, vizMode, lineageActive ?? false)
     if (map.getLayer('carrier-extents-fill')) apply()
     else map.once('load', apply)
   }, [vizMode, lineageActive])
+
+  // Particle overlay — visibility, carrier feed, migration feed, trail mode.
+  //
+  // Visibility tracks vizMode === 'particles'. Trail mode (canvas not fully
+  // cleared between frames, leaving a smear) turns on whenever lineage mode
+  // is active so streams along lineage edges leave a path rather than
+  // looking like an arrow.
+  useEffect(() => {
+    const overlay = particleOverlayRef.current
+    if (!overlay) return
+    overlay.setVisible(vizMode === 'particles')
+    overlay.setTrailMode(lineageActive ?? false)
+  }, [vizMode, lineageActive])
+
+  useEffect(() => {
+    const overlay = particleOverlayRef.current
+    if (!overlay) return
+    overlay.setCarriers(carriers, colorFor)
+  }, [carriers, colorFor])
+
+  useEffect(() => {
+    const overlay = particleOverlayRef.current
+    if (!overlay) return
+    let migrations: ReturnType<typeof buildMigrationsFromAdmixture> = []
+    if (particleMigrationSource === 'extents') {
+      migrations = buildMigrationsFromPropagation(propagationEvents ?? [], year)
+    } else if (particleMigrationSource === 'admixture') {
+      migrations = buildMigrationsFromAdmixture(activeAdmixtureEvents ?? [], carriers)
+    } else if (particleMigrationSource === 'lineage') {
+      migrations = buildMigrationsFromLineage(lineage ?? null)
+    }
+    overlay.setMigrations(migrations)
+  }, [
+    particleMigrationSource,
+    propagationEvents,
+    activeAdmixtureEvents,
+    lineage,
+    carriers,
+    year,
+    lineageMode,
+  ])
 
   return mapRef
 }
