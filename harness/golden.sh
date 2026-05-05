@@ -95,4 +95,16 @@ else
   ok "Chukchi not in this year's view (skipping)"
 fi
 
+echo "[golden] No Chinese-heartland gap at 472 BCE (Zhou bridge present)..."
+got=$(curl -sf "$API/world?year=-472&bbox=95,25,130,45&perspectives=PERSP_POSTREICH_2025" \
+  | jq -r '.perspectives.PERSP_POSTREICH_2025.carriers[].id' | grep -c CARR_HIST_BRIDGE_ZHOU || true)
+[[ "$got" -ge 1 ]] || fail "Zhou bridge missing at 472 BCE — Yellow River cell empty during Spring & Autumn / Warring States"
+ok "Zhou bridge fills the Shang→Han gap at 472 BCE"
+
+echo "[golden] No post-Han Chinese gap at 400 CE (Three Kingdoms / Jin bridge)..."
+got=$(curl -sf "$API/world?year=400&bbox=95,25,130,45&perspectives=PERSP_POSTREICH_2025" \
+  | jq -r '.perspectives.PERSP_POSTREICH_2025.carriers[].id' | grep -c CARR_HIST_BRIDGE_THREEKINGS_JIN || true)
+[[ "$got" -ge 1 ]] || fail "Three-Kingdoms/Jin bridge missing at 400 CE"
+ok "Three-Kingdoms/Jin bridge fills the Han→Tang gap"
+
 echo "[golden] all green"

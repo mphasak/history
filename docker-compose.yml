@@ -455,6 +455,34 @@ services:
       psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
     restart: "no"
 
+  # Audit-gap fillers (db/028): 14 carriers closing the highest-impact
+  # (region, year) gaps surfaced by harness/audit_gaps.py — Zhou /
+  # Three-Kingdoms-Jin / Song-Liao Chinese, pre-Goryeo Korea, pre-Han
+  # Yangtze, Đông Sơn / Funan-Pre-Angkor / Champa SE Asia, Xiongnu /
+  # Saka / Kushan steppe, Numidian / Kanem-Bornu Africa, proto-
+  # Mississippian. Inline trait_mix + threats; tagged [AUTO-PROVENANCE]
+  # / [AUTO-THREAT-028]; idempotent.
+  audit-gap-fillers-seed:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingest:
+        condition: service_completed_successfully
+      carriers-seed:
+        condition: service_completed_successfully
+      carriers-provenance-seed:
+        condition: service_completed_successfully
+      carrier-threats-seed:
+        condition: service_completed_successfully
+    environment:
+      PGPASSWORD: dev
+    volumes:
+      - ./db/028_seed_audit_gap_fillers.sql:/seed.sql:ro
+    command: >-
+      psql -h postgres -U history_sim -d history_sim -v ON_ERROR_STOP=1 -f /seed.sql
+    restart: "no"
+
   # Modern continental carriers (Modern USA / Canada / Mexico) so that
   # post-WWII N America isn't a couple of regional dots.
   modern-continental-seed:
@@ -672,6 +700,8 @@ services:
       admixture-seed:
         condition: service_completed_successfully
       postclassical-bridge-seed:
+        condition: service_completed_successfully
+      audit-gap-fillers-seed:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://history_sim:dev@postgres:5432/history_sim

@@ -232,6 +232,21 @@ export const CARRIER_WIKIPEDIA_TITLES: Record<string, string> = {
   CARR_HIST_POST1492_MODERN_USA: 'Americans',
   CARR_HIST_POST1492_MODERN_CANADA: 'Canadians',
   CARR_HIST_POST1492_MODERN_MEXICO: 'Mexicans',
+  // db/028 audit gap fillers
+  CARR_HIST_BRIDGE_ZHOU: 'Zhou_dynasty',
+  CARR_HIST_BRIDGE_THREEKINGS_JIN: 'Three_Kingdoms',
+  CARR_HIST_BRIDGE_SONG_LIAO: 'Song_dynasty',
+  CARR_HIST_BRIDGE_KOREA_PRE_GORYEO: 'History_of_Korea',
+  CARR_HIST_BRIDGE_YANGTZE_PRE_HAN: 'Chu_(state)',
+  CARR_HIST_DONG_SON: 'Dong_Son_culture',
+  CARR_HIST_FUNAN_PREANGKOR: 'Funan',
+  CARR_HIST_CHAMPA: 'Champa',
+  CARR_HIST_XIONGNU: 'Xiongnu',
+  CARR_HIST_SAKA: 'Saka',
+  CARR_HIST_KUSHAN: 'Kushan_Empire',
+  CARR_HIST_NUMIDIAN: 'Numidia',
+  CARR_HIST_KANEM_BORNU: 'Kanem%E2%80%93Bornu_Empire',
+  CARR_HIST_PROTO_MISSISSIPPIAN: 'Late_Woodland_period',
 }
 
 export interface WikipediaSummary {

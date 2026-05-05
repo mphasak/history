@@ -92,6 +92,8 @@ export function Legend({
       for (const v of Object.values(worldData.perspectives)) {
         for (const p of v.propagation_events) presentDomains.add(p.domain)
       }
+    } else if (vizMode === 'heatmap') {
+      // Heatmap doesn't color by domain; clear the section.
     } else {
       for (const v of Object.values(worldData.perspectives)) {
         for (const c of v.carriers) {
@@ -118,7 +120,34 @@ export function Legend({
         <div className="text-gray-400 mb-2 leading-snug">
           Filled regions are{' '}
           <span className="text-gray-200">carrier extents</span>. Dashed
-          outlines mark approximate (buffered) extents.
+          outlines mark approximate (buffered) extents. Coast-clipped via
+          the ocean mask.
+        </div>
+      )}
+      {vizMode === 'territory' && (
+        <div className="text-gray-400 mb-2 leading-snug">
+          Same data as Fill, with stronger borders and higher opacity —
+          a Wikipedia-distribution-map look.
+        </div>
+      )}
+      {vizMode === 'voronoi' && (
+        <div className="text-gray-400 mb-2 leading-snug">
+          Each cell is the region <em>nearest</em> to a known carrier
+          centroid. Click anywhere on land to select that cell's
+          population. Cells overlap nothing — Voronoi cells partition
+          the world.
+        </div>
+      )}
+      {vizMode === 'heatmap' && (
+        <div className="text-gray-400 mb-2 leading-snug">
+          Continuous density of carrier centroids, weighted by extent
+          area. Cool→warm = sparse→dense.
+        </div>
+      )}
+      {vizMode === 'glow' && (
+        <div className="text-gray-400 mb-2 leading-snug">
+          Each carrier is a stack of soft radial halos. Nearby
+          populations blend into a populated wash.
         </div>
       )}
       {vizMode === 'flow' && (
