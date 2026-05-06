@@ -29,6 +29,16 @@ interface CarrierParticles {
   // re-sampling only happens when the extent actually changes.
   extentSig: string
   rings: PolygonRings | null
+  // When true, particle home placement and per-frame motion are clipped to
+  // the world-land mask in addition to the extent polygon. True once the
+  // mask has loaded; false only during the brief startup window before fetch.
+  landClip: boolean
+  // Mask version under which this carrier's particles were sampled. When
+  // the global mask becomes available *after* a carrier was built (or the
+  // mask reloads), this stamp diverges from `landMaskVersion` and we
+  // rebuild on next setCarriers — avoids leaving carriers with un-clipped
+  // homes once the mask arrives.
+  builtAtMaskVersion: number
   // Bbox of the extent (or a tiny box around the centroid for the buffered
   // fallback). Used for fast outside-test before the polygon containment
   // check, and to derive the per-frame Brownian step magnitude.
@@ -98,6 +108,7 @@ const STREAM_FADE_BG_TRAIL = 'rgba(0,0,0,0.045)' // gentler — leaves visible t
 // streams read as the foreground motion. Numbers chosen by eye.
 const CARRIER_PARTICLE_ALPHA = 0.85
 
+
 // ─── Geometry helpers ────────────────────────────────────────────────────────
 
 function ringContainsPoint(ring: number[][], lon: number, lat: number): boolean {
@@ -119,6 +130,112 @@ function ringsContainPoint(rings: PolygonRings, lon: number, lat: number): boole
   // True iff the point is inside the outer ring of any piece AND outside
   // every hole of that piece. Multipiece polygons OR across pieces.
   for (const piece of rings) {
+    if (piece.length === 0) continue
+    if (!ringContainsPoint(piece[0], lon, lat)) continue
+    let inHole = false
+    for (let h = 1; h < piece.length; h++) {
+      if (ringContainsPoint(piece[h], lon, lat)) { inHole = true; break }
+    }
+    if (!inHole) return true
+  }
+  return false
+}
+
+// ─── World-land mask singleton ──────────────────────────────────────────────
+//
+// Loaded once from the Natural Earth 110m world-land geojson the project
+// already serves at /paleo/world_land_110m.geojson. Each top-level feature
+// (continent or major island) becomes one polygon "piece"; pieces carry a
+// pre-computed bbox so the per-point land test can short-circuit on the
+// vast majority of points outside any continent.
+//
+// `landMaskVersion` increments when the mask transitions from null → loaded.
+// CarrierParticles stamp `builtAtMaskVersion` at sample time so a rebuild
+// fires on the next `setCarriers` call once the mask arrives — otherwise
+// carriers built during the brief pre-load window would never get clipped.
+
+// Store mask state on globalThis so it survives vite HMR module reloads.
+// Without this, each HMR creates a fresh module scope with version=0, while
+// the ParticleOverlay instance's frame() reads from that new scope and never
+// sees the mask that loaded in the prior module's scope.
+interface LandMaskState {
+  rings: PolygonRings | null
+  bboxes: { minLon: number; maxLon: number; minLat: number; maxLat: number }[]
+  version: number
+  promise: Promise<void> | null
+}
+const MASK_KEY = '__particleLandMask' as const
+const _ms: LandMaskState = (globalThis as any)[MASK_KEY] ??= {
+  rings: null, bboxes: [], version: 0, promise: null,
+}
+// Module-local aliases for hot-path access in frame() and sampling.
+let landMaskRings: PolygonRings | null = _ms.rings
+let landMaskBboxes: { minLon: number; maxLon: number; minLat: number; maxLat: number }[] = _ms.bboxes
+let landMaskVersion: number = _ms.version
+
+function ensureLandMask(): Promise<void> {
+  if (_ms.promise) {
+    // Sync module aliases in case a prior HMR already loaded the mask.
+    landMaskRings = _ms.rings
+    landMaskBboxes = _ms.bboxes
+    landMaskVersion = _ms.version
+    return _ms.promise
+  }
+  _ms.promise = fetch('/paleo/world_land_110m.geojson')
+    .then((r) => {
+      if (!r.ok) throw new Error(`world_land_110m: ${r.status}`)
+      return r.json() as Promise<GeoJSON.FeatureCollection>
+    })
+    .then((fc) => {
+      const pieces: PolygonRings = []
+      for (const f of fc.features) {
+        if (!f.geometry) continue
+        if (f.geometry.type === 'Polygon') {
+          pieces.push(f.geometry.coordinates as number[][][])
+        } else if (f.geometry.type === 'MultiPolygon') {
+          for (const piece of f.geometry.coordinates as number[][][][]) {
+            pieces.push(piece)
+          }
+        }
+      }
+      const bboxes = pieces.map((piece) => {
+        let minLon = Infinity, maxLon = -Infinity
+        let minLat = Infinity, maxLat = -Infinity
+        for (const ring of piece) {
+          for (const [x, y] of ring) {
+            if (x < minLon) minLon = x
+            if (x > maxLon) maxLon = x
+            if (y < minLat) minLat = y
+            if (y > maxLat) maxLat = y
+          }
+        }
+        return { minLon, maxLon, minLat, maxLat }
+      })
+      _ms.rings = pieces
+      _ms.bboxes = bboxes
+      _ms.version++
+      // Sync module aliases so frame() / sampling read the live values.
+      landMaskRings = pieces
+      landMaskBboxes = bboxes
+      landMaskVersion = _ms.version
+    })
+    .catch(() => {
+      // Failure to load the mask is non-fatal — carriers fall through to
+      // the un-clipped path. The catch keeps a single rejection from
+      // wedging future ensure() calls (the singleton stays resolved-ish).
+    })
+  return _ms.promise
+}
+
+function isOnLand(lon: number, lat: number): boolean {
+  // Permissive when the mask isn't loaded yet — false negatives during
+  // startup would render fewer particles, true negatives only matter once
+  // we know where land actually is.
+  if (!landMaskRings) return true
+  for (let i = 0; i < landMaskRings.length; i++) {
+    const bb = landMaskBboxes[i]
+    if (lon < bb.minLon || lon > bb.maxLon || lat < bb.minLat || lat > bb.maxLat) continue
+    const piece = landMaskRings[i]
     if (piece.length === 0) continue
     if (!ringContainsPoint(piece[0], lon, lat)) continue
     let inHole = false
@@ -170,18 +287,24 @@ function parseExtentGeojson(s: string | null | undefined): ExtentInfo | null {
   }
 }
 
-function samplePointInRings(info: ExtentInfo, attempts = 40): [number, number] {
+function samplePointInRings(info: ExtentInfo, landClip: boolean, attempts = 80): [number, number] {
   const w = info.maxLon - info.minLon
   const h = info.maxLat - info.minLat
   for (let i = 0; i < attempts; i++) {
     const lon = info.minLon + Math.random() * w
     const lat = info.minLat + Math.random() * h
-    if (ringsContainPoint(info.rings, lon, lat)) return [lon, lat]
+    if (!ringsContainPoint(info.rings, lon, lat)) continue
+    if (landClip && !isOnLand(lon, lat)) continue
+    return [lon, lat]
   }
-  // Pathological narrow polygon: walk the outer-ring vertices and pick one.
-  // Strictly inside the polygon by construction.
+  // Pathological narrow polygon: walk the outer-ring vertices and pick one
+  // that passes the land test if possible.
   const piece = info.rings[0]
   if (piece && piece[0] && piece[0].length > 0) {
+    for (let i = 0; i < piece[0].length; i++) {
+      const v = piece[0][(Math.floor(Math.random() * piece[0].length + i)) % piece[0].length]
+      if (!landClip || isOnLand(v[0], v[1])) return [v[0], v[1]]
+    }
     const v = piece[0][Math.floor(Math.random() * piece[0].length)]
     return [v[0], v[1]]
   }
@@ -259,6 +382,7 @@ export class ParticleOverlay {
     this.ctx = ctx
     this.resize()
     this.map.on('resize', this.resize)
+    ensureLandMask()
   }
 
   destroy() {
@@ -287,14 +411,15 @@ export class ParticleOverlay {
   setCarriers(carriers: CarrierView[], colorFor: (c: CarrierView) => string) {
     // Reuse existing per-carrier particle state on update so clusters don't
     // visibly resnap on every year tick. Re-sample particles only when the
-    // extent_geojson actually changes (detected via a stable signature).
+    // extent_geojson actually changes OR the land mask arrived since the
+    // carrier was last built (detected via builtAtMaskVersion stamp).
     const prevById = new Map(this.carriers.map((c) => [c.carrierId, c]))
     const next: CarrierParticles[] = []
     for (const c of carriers) {
       if (!c.centroid) continue
       const sig = c.extent_geojson ?? `__buf:${c.centroid.lon.toFixed(3)}:${c.centroid.lat.toFixed(3)}`
       const existing = prevById.get(c.id)
-      if (existing && existing.extentSig === sig) {
+      if (existing && existing.extentSig === sig && existing.builtAtMaskVersion === landMaskVersion) {
         existing.centroidLon = c.centroid.lon
         existing.centroidLat = c.centroid.lat
         existing.color = colorFor(c)
@@ -313,8 +438,8 @@ export class ParticleOverlay {
   ): CarrierParticles {
     const info = parseExtentGeojson(c.extent_geojson)
     if (info) {
-      // Particle count scales with extent area but flattens for empires
-      // so the canvas doesn't get overwhelmed.
+      const landClip = !!landMaskRings
+
       const count = Math.max(
         PARTICLES_MIN,
         Math.min(PARTICLES_MAX, Math.round(Math.sqrt(info.bboxAreaDeg) * PARTICLES_PER_DEG)),
@@ -322,7 +447,7 @@ export class ParticleOverlay {
       const homeLon = new Float32Array(count)
       const homeLat = new Float32Array(count)
       for (let i = 0; i < count; i++) {
-        const [lon, lat] = samplePointInRings(info)
+        const [lon, lat] = samplePointInRings(info, landClip)
         homeLon[i] = lon
         homeLat[i] = lat
       }
@@ -333,6 +458,8 @@ export class ParticleOverlay {
         color,
         extentSig: sig,
         rings: info.rings,
+        landClip,
+        builtAtMaskVersion: landMaskVersion,
         bboxMinLon: info.minLon, bboxMaxLon: info.maxLon,
         bboxMinLat: info.minLat, bboxMaxLat: info.maxLat,
         count,
@@ -361,6 +488,8 @@ export class ParticleOverlay {
       color,
       extentSig: sig,
       rings: null,
+      landClip: !!landMaskRings,
+      builtAtMaskVersion: landMaskVersion,
       bboxMinLon: c.centroid!.lon - FALLBACK_RADIUS_DEG,
       bboxMaxLon: c.centroid!.lon + FALLBACK_RADIUS_DEG,
       bboxMinLat: c.centroid!.lat - FALLBACK_RADIUS_DEG,
@@ -425,10 +554,44 @@ export class ParticleOverlay {
     }
   }
 
+  // Track the last mask version we checked — avoids rebuilding every frame.
+  private lastCheckedMaskVersion = 0
+
   private frame(dt: number) {
     const ctx = this.ctx
     const w = this.canvas.width / this.dpr
     const h = this.canvas.height / this.dpr
+
+    // If the land mask arrived since carriers were built, rebuild them in
+    // place so land-clipping kicks in without waiting for a React re-render.
+    // Read from the global state object directly — module-local `let` aliases
+    // can desync across vite HMR module reloads.
+    const curMaskVersion = _ms.version
+    if (curMaskVersion > 0 && _ms.rings && landMaskRings !== _ms.rings) {
+      landMaskRings = _ms.rings
+      landMaskBboxes = _ms.bboxes
+      landMaskVersion = curMaskVersion
+    }
+    if (curMaskVersion > this.lastCheckedMaskVersion) {
+      this.lastCheckedMaskVersion = curMaskVersion
+      const stale = this.carriers.some((c) => c.builtAtMaskVersion < curMaskVersion)
+      if (stale) {
+        this.carriers = this.carriers.map((c) => {
+          if (c.builtAtMaskVersion >= curMaskVersion) return c
+          // Re-build by synthesizing a minimal CarrierView for buildCarrierParticles.
+          const fakeCarrier = {
+            id: c.carrierId,
+            centroid: { lon: c.centroidLon, lat: c.centroidLat },
+            extent_geojson: c.rings ? JSON.stringify(
+              c.rings.length === 1
+                ? { type: 'Polygon', coordinates: c.rings[0] }
+                : { type: 'MultiPolygon', coordinates: c.rings }
+            ) : undefined,
+          } as CarrierView
+          return this.buildCarrierParticles(fakeCarrier, c.color, c.extentSig)
+        })
+      }
+    }
 
     // Background pass: fade for trails OR a stronger overlay so motion blur
     // doesn't pile up indefinitely. A pure clear would defeat the trail
@@ -478,9 +641,9 @@ export class ParticleOverlay {
                     + (Math.random() - 0.5) * BROWNIAN_NOISE_PER_SEC * noiseDeg * dt * 2
         const newLon = c.pLon[i] + c.vLon[i] * dt * 60   // *60 so velocity tunes
         const newLat = c.pLat[i] + c.vLat[i] * dt * 60   // around per-second feel
-        // Containment: if the proposed step leaves the polygon, reverse the
-        // velocity (soft bounce) and skip the position update. Bbox quick-
-        // reject first so most checks short-circuit without the ring scan.
+        // Containment: if the proposed step leaves the polygon (or land when
+        // landClip is active), reverse the velocity (soft bounce) and skip the
+        // position update. Bbox quick-reject first so most checks short-circuit.
         let inside = true
         if (c.rings) {
           if (newLon < c.bboxMinLon || newLon > c.bboxMaxLon ||
@@ -489,6 +652,9 @@ export class ParticleOverlay {
           } else {
             inside = ringsContainPoint(c.rings, newLon, newLat)
           }
+        }
+        if (inside && c.landClip) {
+          inside = isOnLand(newLon, newLat)
         }
         if (inside) {
           c.pLon[i] = newLon
